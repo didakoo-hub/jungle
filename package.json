@@ -1,0 +1,24 @@
+{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-vue2": "^2.3.4",
+        "bootstrap": "^v4.6.2",
+        "sass": "^1.20.1",
+        "vite": "^7.3.6",
+        "vue": "^2.7.16",
+        "vue-router": "^3.0.1",
+        "vuex": "3.1.0"
+    },
+    "dependencies": {
+        "@noble/curves": "1.9.7",
+        "@streamr/sdk": "^103.3.2",
+        "buffer": "^6.0.3",
+        "ethers": "^6.17.0"
+    }
+}

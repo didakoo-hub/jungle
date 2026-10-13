@@ -1,0 +1,669 @@
+@import 'variables.scss';
+@import 'bootstrap/scss/bootstrap';
+
+body, html {
+    height: 100%;
+    margin: 0px;
+    background-color: black;
+    font-family: monospace;
+}
+
+.h2_x {
+    margin-bottom: 1.3rem;
+}
+
+ul {
+    list-style-type: square;
+}
+
+li:before {
+    content: none;
+    padding-right: 5px;
+    color: white;
+}
+
+.centerer {
+    justify-items: center;
+    height: 100%;
+    margin: 0px;
+    background-color: black;
+}
+
+body, .centerer {
+    background-color: black;
+}
+
+#page1 {
+    display: flex;
+    position: relative;
+    height: calc(100vh - 80px);
+}
+
+#page1 .menu-actions {
+    height: calc(80vh - 80px);
+}
+
+@supports (height: 100dvh) {
+    #page1 {
+        height: calc(100dvh - 80px);
+    }
+
+    #page1 .menu-actions {
+        height: calc(80dvh - 80px);
+    }
+}
+
+#_box1_ {
+    margin-bottom: 40px;
+    margin-top: 25px;
+}
+
+#modalx {
+    background-size: 100% 10px, 50% 50%;
+    background-repeat: no-repeat;
+    rotate: 180deg;
+    border: 1px solid #3c3c3c;
+}
+
+#modalx span {
+    rotate: 180deg;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 100;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background:
+        linear-gradient(
+            rgba(0, 0, 0, 1),
+            rgba(0, 0, 0, 1)
+        );
+    background-repeat: repeat;
+    background-size: 700px;
+}
+
+.modal-ingame {
+    background:
+        linear-gradient(
+            rgba(0, 0, 0, 0.5),
+            rgba(0, 0, 0, 0.5)
+        ),
+        url("../images/board/bignilo13.webp");
+    background-repeat: repeat;
+    background-position: center;
+    background-size: 1123px;
+}
+
+.modal-outgame {
+    background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("../images/board/bignilo13.webp");
+    background-repeat: repeat;
+    background-position: center;
+    background-attachment: fixed;
+    background-size: 1123px;
+}
+
+#page5, #page1 {
+    background:
+        linear-gradient(
+            rgba(0, 0, 0, 0.5),
+            rgba(0, 0, 0, 0.5)
+        ),
+        url("../images/board/bignilo13.webp");
+    background-repeat: repeat;
+    background-position: top;
+    background-size: 1123px;
+}
+
+#page4 {
+    background-repeat: repeat;
+    background-position: center;
+    background-size: 1150px;
+}
+
+.avatar-address {
+    font-size: 30px;
+    border-radius: 8px;
+    margin-bottom: 20px !important;
+    margin-top: 15px !important;
+}
+
+.aligner {
+    width: 100%;
+}
+
+.aligner2 {
+    position: relative;
+}
+
+#page4 .aligner {
+    margin-bottom: 0 !important;
+}
+
+#page5 a:hover {
+    text-decoration: underline;
+}
+
+.bt {
+    z-index: 2;
+    display: flex;
+    bottom: 55px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 20px;
+
+    flex-direction: column !important;
+}
+
+@media (min-width: 500px) {
+    .bt {
+        flex-direction: row !important;
+    }
+
+    .pt-md-0 {
+        padding-top: 0 !important;
+    }
+
+    .ml-md-3 {
+        margin-left: 1rem !important;
+    }
+}
+
+.bt a {
+    margin: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-decoration: none;
+}
+
+.bt i, .bt span {
+    color: white;
+    font-size: 35px;
+}
+
+#redj {
+    font-size: 18px;
+    font-style: inherit;
+}
+
+.bt span {
+    font-size: 25px;
+}
+
+.square {
+    padding: 5px;
+    background-color: black;
+    width: 105px;
+    height: 105px;
+    border-radius: 20%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    border: 3px solid black;
+}
+
+#led {
+    font-size: 7px;
+}
+
+#modalz .square {
+    border: 3px solid black;
+}
+
+#modaly .square {
+    border: 3px solid black;
+}
+
+.navbar {
+    width: 100vw;
+}
+
+.burger_menu {
+    color: white;
+    position: absolute;
+    font-size: 27px;
+}
+
+.call_button {
+    border-radius: 20px;
+    margin: 4px;
+    margin-top: 0px !important;
+    background-color: black;
+    color: white;
+    padding: 5px;
+}
+
+.call_button--selected {
+    outline: 3px solid #ffffff;
+    outline-offset: 2px;
+}
+
+.icon-tint {
+    display: inline-block;
+    background-color: currentColor;
+    -webkit-mask: var(--icon) no-repeat center / contain;
+    mask: var(--icon) no-repeat center / contain;
+}
+
+.record {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    background-color: red;
+}
+
+#page2 .record {
+    width: 100%;
+}
+
+#page2 .record-pointer {
+    cursor: pointer;
+}
+
+#page2 .record,
+#page4 .records .record {
+    position: relative;
+}
+#page2 .record,
+#page4 .records .record {
+    scroll-margin-top: 90px;
+}
+.record--selected::before,
+.record--selected::after {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #ffffff;
+    font-size: 20px;
+    line-height: 1;
+    pointer-events: none;
+}
+.record--selected::before {
+    content: ">";
+    right: 100%;
+    margin-right: 6px;
+}
+.record--selected::after {
+    content: "<";
+    left: 100%;
+    margin-left: 6px;
+}
+#page2 .rank,
+#page4 .records {
+    padding-left: 22px;
+    padding-right: 22px;
+}
+
+#page4 .record {
+    width: 280px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+}
+
+@media screen and (max-height: 586px) {
+    .square {
+        width: 75px;
+        height: 75px;
+    }
+
+    #led {
+        position: absolute;
+        font-size: 5px;
+        top: 6px !important;
+        right: 6px !important;
+    }
+
+    #redj {
+        font-size: 13px;
+    }
+
+    #led {
+        font-size: 5px;
+    }
+
+    .bt i {
+        font-size: 25px;
+    }
+
+    .bt {
+        margin-bottom: -45px;
+    }
+}
+
+.banner-board-helper {
+    justify-content: center;
+}
+
+@media screen and (min-width: 519px) {
+    #page2 .record {
+        margin-left: 50px;
+        margin-right: 50px;
+    }
+}
+
+@media screen and (min-width: 359px) {
+    #page2 .record {
+        margin-left: 25px;
+        margin-right: 25px;
+    }
+}
+
+.game_main .aligner {
+    --board-mirror-max: 0px;
+
+    --board-margin-x: 14px;
+    --board-margin-y: 16px;
+    --board-queue-y: 0px;
+    --board-reserve-y: 110px;
+    --board-cap: 900px;
+    --board-height-viewport: 100vh;
+
+    --board-space-y: calc(
+        var(--board-height-viewport) - var(--board-reserve-y) -
+            var(--board-margin-y) * 2 - var(--board-queue-y)
+    );
+    --board-budget-y: calc(var(--board-space-y) * 7 / 9);
+    --board-budget-x: calc(100% - var(--board-margin-x) * 2);
+
+    --board-width: max(
+        180px,
+        min(var(--board-cap), var(--board-budget-x), var(--board-budget-y))
+    );
+    --board-height: calc(var(--board-width) * 9 / 7);
+    --board-remainder-y: max(
+        0px,
+        var(--board-space-y) - var(--board-height)
+    );
+
+    flex: 1 1 auto;
+    min-height: 0;
+    justify-content: center;
+    padding-bottom: min(var(--board-mirror-max), var(--board-remainder-y));
+}
+
+@supports (height: 100svh) {
+    .game_main .aligner {
+        --board-height-viewport: 100svh;
+    }
+}
+
+.aligner-inner-container {
+    width: 100%;
+}
+
+.board {
+    width: var(--board-width);
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: var(--board-queue-y);
+}
+
+@media screen and (min-width: 992px) {
+    .game_main .aligner {
+        --board-queue-y: 32px;
+
+        justify-content: flex-start;
+    }
+}
+
+@media screen and (max-width: 991.98px) {
+    .game_main .aligner {
+        --board-mirror-max: 80px;
+    }
+}
+
+.console-screen {
+    font-family: monospace;
+    width: 100%;
+    border: 1px solid #ffffff59;
+    border-radius: 8px;
+    margin: 30px 30px 30px 30px;
+    transition: 0.5s ease;
+    margin-top: 10px;
+}
+
+@media screen and (min-width: 10px) and (min-height: 10px) {
+    .modal-content {
+        width: calc(200px);
+        height: 358px;
+    }
+}
+
+@media screen and (min-width: 278px) and (min-height: 400px) {
+    .modal-content {
+        width: calc(225px);
+        height: 389px;
+    }
+}
+
+@media screen and (min-width: 319px) and (min-height: 475px) {
+    .modal-content {
+        width: calc(250px);
+        height: 421px;
+    }
+}
+
+@media screen and (min-width: 348px) and (min-height: 500px) {
+    .modal-content {
+        width: calc(260px);
+        height: 460px;
+    }
+}
+
+@media screen and (min-width: 370px) and (min-height: 538px) {
+    .modal-content {
+        width: calc(280px);
+        height: 524px;
+    }
+}
+
+@media screen and (min-width: 482px) and (min-height: 600px) {
+    .modal-content {
+        width: calc(300px);
+        height: 550px;
+    }
+}
+
+@media screen and (min-width: 638px) and (min-height: 670px) {
+    .modal-content {
+        width: calc(330px);
+        height: 600px;
+    }
+}
+
+@media screen and (min-width: 662px) and (min-height: 726px) {
+    .modal-content {
+        width: calc(350px);
+        height: 652px;
+    }
+}
+
+@media screen and (min-width: 700px) and (min-height: 790px) {
+    .modal-content {
+        width: calc(370px);
+        height: 704px;
+    }
+
+    .modal-ingame {
+        background-size: 600px;
+    }
+}
+
+@media screen and (min-width: 710px) and (min-height: 898px) {
+
+    .modal-ingame {
+        background-size: 600px;
+    }
+}
+
+@media screen and (min-width: 795px) and (min-height: 1043px) {
+
+    .modal-ingame {
+        background-size: 600px;
+    }
+}
+
+@media screen and (max-height: 410px) {
+    #buttons_collection {
+        flex-direction: row !important;
+        gap: 0 10px;
+    }
+}
+
+@media screen and (min-width: 150px) and (min-height: 100px) {
+    .avatar {
+        width: 210px;
+        margin-bottom: 150px;
+        border-radius: 35px;
+        margin: 20px;
+        position: relative;
+    }
+
+    #page4 .record {
+        width: 180px;
+    }
+
+    #avataricon {
+        width: 50px;
+    }
+}
+
+@media screen and (min-width: 350px) and (min-height: 150px) {
+    .avatar {
+        width: 290px;
+        margin-bottom: 150px;
+        border-radius: 35px;
+        margin: 20px;
+        position: relative;
+    }
+
+    #page4 .record {
+        width: 280px;
+    }
+
+    #avataricon {
+        width: 60px;
+    }
+}
+
+@media screen and (min-width: 460px) and (min-height: 200px) {
+    .avatar {
+        width: 290px;
+        border-radius: 35px;
+        position: relative;
+    }
+
+    #page4 .record {
+        width: 280px;
+    }
+
+    #avataricon {
+        width: 80px;
+    }
+}
+
+.pepar {
+    margin-bottom: 40px !important;
+    background-color: black;
+    padding: 30px;
+    border-radius: 20px;
+    background:
+        linear-gradient(
+            rgba(0, 0, 0, 1),
+            rgba(0, 0, 0, 1)
+        );
+}
+
+@media screen and (min-width: 350px) {
+    .pepar {
+        width: 350px;
+    }
+}
+
+@media screen and (min-width: 460px) and (min-height: 600px) {
+    .pepar {
+        width: 437.5px;
+        margin-bottom: 130px;
+    }
+}
+
+.pepar p {
+    color: white;
+}
+
+.pepar h1, .pepar h2, .pepar h3,
+.pepar h4, .pepar h5, .pepar h6 {
+    color: white;
+}
+
+.pepar details {
+    color: white;
+}
+
+.pepar li {
+    color: white;
+}
+
+.pepar img {
+    width: 100%;
+}
+
+@media screen and (max-width: 390px) {
+    .pepar {
+        margin: 0 30px;
+        font-size: 12px;
+    }
+}
+
+.modal img {
+    width: 100px;
+}
+
+.modal-content {
+    background-color: black;
+    margin: 15% auto;
+    padding: 30px;
+    border-radius: 20px;
+    min-width: 350px;
+    border: 8px solid BLACK;
+    height: fit-content;
+}
+
+#modalx div {
+    background-color: black;
+}
+
+@media screen and (max-width: 415px) {
+    .modal-content {
+        min-width: 300px;
+
+        .main_modal & .main_message {
+            font-size: 14px;
+        }
+    }
+}
+
+@media screen and (max-width: 315px) {
+    .modal-content {
+        min-width: 250px;
+    }
+}
+
+@media screen and (max-width: 277px) {
+    .main_modal .modal-content .main_message {
+        font-size: 12px;
+    }
+}
+
+#led {
+    position: absolute;
+    font-size: 5px;
+    top: 12px;
+    right: 12px;
+}

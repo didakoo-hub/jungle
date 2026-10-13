@@ -1,0 +1,364 @@
+{
+  "chainId": 137,
+  "seeds": [
+    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0xa7f2c91111111111111111111111111111111111111111111111111111111111",
+    "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "0xdeadbeefc0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffee42",
+    "0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+  ],
+  "boards": [
+    "4905458315306112604971807276115028",
+    "5145668200843176390734381107618642",
+    "4578384810262456560891020153462860",
+    "4497908917537083820256765596935250",
+    "4902933035803190219646866017233224",
+    "4338179951760235804212925828178770"
+  ],
+  "colorsOf": [
+    53,
+    76,
+    53,
+    74,
+    46,
+    46
+  ],
+  "firstIsWhite": [
+    false,
+    true,
+    true,
+    true,
+    false,
+    false
+  ],
+  "game": {
+    "contract": "0x1000000000000000000000000000000000000001",
+    "wallets": {
+      "a": "0x0376AAc07Ad725E01357B1725B5ceC61aE10473c",
+      "b": "0x0F89F1868aF3b14a5eca86ed9a5404A742a11454"
+    },
+    "sessions": {
+      "a": "0x06a1c0f235D4ebCBCbaa2272783eBf539e11A397",
+      "b": "0x36E6aB69657f8009A68F6D533eB445DA52Ab0EC2"
+    },
+    "match": {
+      "v": 1,
+      "gameId": "3534130927792925529647223862825228364292905238195002415855954990926742965986",
+      "a": "0x0376AAc07Ad725E01357B1725B5ceC61aE10473c",
+      "b": "0x0F89F1868aF3b14a5eca86ed9a5404A742a11454",
+      "commitA": "0x4974aa648e43dcc84390df1a2b8343da4ea5edce41413938eae6cf2256464526",
+      "commitB": "0xfbb752db150f5032b917528fa2f43109369e9e4dedba8360bd9e9a87f84108ab",
+      "category": 2,
+      "repetitionLimit": 6,
+      "turnS": 15,
+      "penaltyS": 5,
+      "graceS": 1,
+      "t": 1772000000
+    },
+    "matchHash": "0xb9b5aa74ed45fa84a7c16fe1131e0a9c284b21747e49cebaf14021c489646279",
+    "signatureA": "0x17359be222a414096a9735a1fa73e9b3c4a2080aa683ffd003ac36d70faf086216fad8da6c29ac2d568794f3c28fd884e1855e6df6c5eb0cdb9905ca4bfe88cc1c",
+    "signatureB": "0xe404252d6f4edf132709468ea1726446363de2709899bedf642cd1b175fb9aba6ff6f88b287285359c54c111d8547216b0df46576ca90bcee8655dbf05dc3d3e1b",
+    "deprecation": {
+      "minVersion": 2,
+      "notBefore": 1772000000
+    },
+    "deprecationHash": "0x126b323d285c69fe98b1638544f542f7ff3d6e36db4f1a2ee751315d5e26dcfb",
+    "deprecationSignature": "0x96b8b091f723ee45b96f219705fa15644f90e38bccdb98808f9712ae825ebac11c9975746308d7d460f3bd89066c1f4c4bfe8ff0085c7c4316eb1bf5afa308c81c",
+    "seedA": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "seedB": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2ba",
+    "seed": "0x131313131313131313131313131313131313131313131313131313131313131b",
+    "white": "0x0376AAc07Ad725E01357B1725B5ceC61aE10473c",
+    "black": "0x0F89F1868aF3b14a5eca86ed9a5404A742a11454",
+    "initialBoard": "4822427471186065815252654747689804",
+    "colors": 46,
+    "plies": [
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 46,
+        "to": 45
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 18,
+        "to": 46
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 44,
+        "to": 51
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 46,
+        "to": 45
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 54,
+        "to": 53
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 16,
+        "to": 17
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 62,
+        "to": 61
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 12,
+        "to": 11
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 56,
+        "to": 57
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 6,
+        "to": 5
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 48,
+        "to": 41
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 8,
+        "to": 9
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 41,
+        "to": 34
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 0,
+        "to": 1
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 34,
+        "to": 27
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 20,
+        "to": 13
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 27,
+        "to": 20
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 13,
+        "to": 6
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 20,
+        "to": 13
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 14,
+        "to": 15
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 13,
+        "to": 6
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 45,
+        "to": 52
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 51,
+        "to": 52
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 5,
+        "to": 4
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 52,
+        "to": 45
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 4,
+        "to": 5
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 6,
+        "to": 5
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 15,
+        "to": 14
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 50,
+        "to": 51
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 14,
+        "to": 21
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 42,
+        "to": 43
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 21,
+        "to": 28
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 43,
+        "to": 42
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 28,
+        "to": 35
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 42,
+        "to": 43
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 35,
+        "to": 42
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 43,
+        "to": 50
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 42,
+        "to": 49
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 50,
+        "to": 49
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 11,
+        "to": 4
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 5,
+        "to": 4
+      },
+      {
+        "colour": 0,
+        "skipped": false,
+        "from": 17,
+        "to": 16
+      },
+      {
+        "colour": 1,
+        "skipped": false,
+        "from": 4,
+        "to": 3
+      }
+    ],
+    "moves": "0x8bad04ae8b330bad8db504118fbd030b8e3901858c2902098a620001889b050d86d40346850d038f83460b748cf401448d2d0105818503ce8cb303958aab055c8aea07238aab08ea8af20ab18cb102c4814404508103",
+    "finalBoard": "4767604077970401718588773856591872",
+    "finalSlots": [
+      3,
+      14,
+      2,
+      7,
+      11,
+      9,
+      13,
+      15,
+      12,
+      8
+    ],
+    "finalSquares": [
+      1,
+      3,
+      9,
+      16,
+      45,
+      49,
+      51,
+      53,
+      57,
+      61
+    ],
+    "winner": "white",
+    "endReason": 1
+  }
+}
