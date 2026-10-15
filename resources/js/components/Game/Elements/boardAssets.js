@@ -27,6 +27,19 @@ export function animalSrc(name, colorId, inWater = false) {
     return animals[`${name}_${colorId}`];
 }
 
+const PYRAMID_RIMS = {
+    1: { fill: "#e9e854", line: "#040402" },
+    2: { fill: "#ed3534", line: "#040202" },
+    3: { fill: "#395fa2", line: "#020203" },
+    4: { fill: "#ed5c80", line: "#040303" },
+    5: { fill: "#000000", line: null, wide: true },
+    6: { fill: "#fefefe", line: "#040404" },
+};
+
+export function pyramidRim(colorId) {
+    return PYRAMID_RIMS[colorId] ?? null;
+}
+
 export function pyramidSrc(colorId) {
     return pyramids[`piramid_${colorId}`];
 }

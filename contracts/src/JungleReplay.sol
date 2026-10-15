@@ -6,7 +6,7 @@ contract JungleReplay {
         return "<script>"
         "var P=[],D=[document.getElementById('d0'),document.getElementById('d1')],"
         "W=function(q){var r=Math.floor(q/7),c=q%7;return r>2&&r<6&&c!=0&&c!=3&&c!=6},"
-        "X=function(s,q){var m=s%8==0;return 'translate('+((q%7)*80+(m?10:0))+'px,'+(Math.floor(q/7)*80)+'px) scale('+(m?.06:.08)+')'},"
+        "X=function(s,q){return 'translate('+(q%7)*80+'px,'+Math.floor(q/7)*80+'px) scale(.08)'},"
         "F=function(s){var b=(s<8?0:1)==B;return s%8==0&&b&&W(P[s])?'#99b3e6':(s<8?C[0]:C[1])},"
         "R=function(){for(var s=0;s<16;s++){P[s]=S[s];var e=document.getElementById('p'+s);if(!e)continue;"
         "e.style.transition='none';e.style.display=S[s]<0?'none':'';if(S[s]>=0){e.style.transform=X(s,S[s]);e.setAttribute('fill',F(s))}}"

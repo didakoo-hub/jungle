@@ -69,13 +69,12 @@ contract JungleMementoTest is Table {
         assertGt(slots.length, 0);
         assertEq(quante(svg, "<use xlink:href=\"#a"), slots.length, "un <use> per pezzo vivo");
         for (uint256 i = 0; i < slots.length; i++) {
-            bool topo = slots[i] % 8 == 0;
             string memory atteso = string.concat(
                 "transform=\"translate(",
-                vm.toString((caselle[i] % 7) * 80 + (topo ? 10 : 0)),
+                vm.toString((caselle[i] % 7) * 80),
                 " ",
                 vm.toString((caselle[i] / 7) * 80),
-                topo ? ") scale(.06)\"/>" : ") scale(.08)\"/>"
+                ") scale(.08)\"/>"
             );
             assertTrue(contiene(svg, atteso), string.concat("slot ", vm.toString(slots[i]), " sulla sua casella"));
         }
@@ -163,7 +162,6 @@ contract JungleMementoTest is Table {
         if (id == 2) return "#ed3634";
         if (id == 3) return "#3a60a3";
         if (id == 4) return "#ed5d80";
-        if (id == 5) return "#8a1fcc";
         return "#fefffe";
     }
 
