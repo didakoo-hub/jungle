@@ -1,4 +1,4 @@
-# Jungle v 1.1
+# Jungle v 1.2
 
 
 
@@ -17,8 +17,8 @@ Play as a guest <img src="resources/images/readme/guest.svg" alt="guest" width="
 
 
 ## Animals
-Jungle is a 1 vs 1 board game played on a 7 × 9 grid. Each player has 8 animals, each with its
-own power. The initial positions of the animals change with every match. On your turn you move one animal one square up, down, left or right, never diagonally.
+Jungle is a 1 vs 1 board game played on a 7 × 9 grid. Each player has 8 animals, each with a
+different strength. The initial positions of the animals change with every match. On your turn you move one animal one square up, down, left or right, never diagonally.
 <p align="center">
 <img src="resources/images/readme/arena-start.png" alt="the start of an arena match" width="29%"><!--
 --><img src="resources/images/readme/bot-start.png" alt="the start of a match against the bot" width="29%"><!--
@@ -30,7 +30,7 @@ own power. The initial positions of the animals change with every match. On your
 </p>
 
 You have 15 seconds to make your move. If time runs out you skip the turn, and your next turn
-lasts 5 seconds. You cannot move the same animal more than 6 times in a row. After the 6th move it is EXHAUSTED:
+lasts 5 seconds. You cannot move the same animal more than 6 times in a row. After the 6th move the animal becomes EXHAUSTED:
 for one turn it cannot move, and any opposing animal can eat it.
 
 
@@ -56,10 +56,10 @@ The first animal that enters the opponent's pyramid wins the game.
 
 
 ## Modes and Ranking
-- **Bot**: Play against the computer. No wallet needed, and it is free. The bot's strength ranges from LV 1 to LV 7. It changes randomly with every match.
-- **Private**: Press COPY LINK and share it with Player 2 to start the match. Guests and wallets can't play against each other.
+- **Bot**: Play against the computer. No wallet needed, and it is free. Every match has a random bot level, from LV 1 to LV 7.
+- **Private**: Press COPY LINK and share it with Player 2 for a private match. Guests and wallets can't play against each other.
   - Guests play for free, with nothing at stake.
-  - Wallets play on-chain: every move is a transaction, signed in the background by a session key the game keeps in the browser. MetaMask asks only once per match, to open your seat: you stake 5 POL and need a Jungle pass token in the wallet. The winner takes both stakes and gets the game record token.
+  - Wallets play on-chain: every move is a transaction signed by a session key, so MetaMask asks for confirmation only at the start of the match. To play this mode you need a Jungle pass token and stake 5 POL per match. The winner takes both players' stakes and gets a record token of the match.
   - Every record token held is a point in the ranking. Guest matches don't mint a record token.
 - **Arena**: Play against a random opponent. Wallets only, on-chain like a private match, with the same requirements and rewards.
 
@@ -67,8 +67,7 @@ The first animal that enters the opponent's pyramid wins the game.
 
 
 ## Collections
-Native (records, pass) and third-party collections recognized by the game that unlock extra
-content:
+NFT collections recognized by the game, and what they unlock:
 - [Jungle didakoo pass](https://opensea.io/collection/jungle-didakoo-pass) (Polygon) - pass, and the four extra colours
 - [Jungle didakoo records](https://opensea.io/collection/jungle-didakoo-records) (Polygon) - the record tokens
 - [didakoo items 2023](https://opensea.io/collection/didakoo-items) (Ethereum) - the animal badges, and the four extra colours
@@ -166,14 +165,14 @@ The board setup is decided by the seed. In multiplayer it comes from the meeting
 The contracts in `contracts/src` are deployed on Polygon with no admin functions and no upgrade path.
 <table>
 <tr><th>Contract</th><th>Role</th><th>Who calls it</th><th>Values</th></tr>
-<tr><td><b>JungleGame</b><br><a href="https://polygonscan.com/address/0xB4E544179A2892f0982F8E468e316CcB213C712A"><code>0xB4E544179A2892f0982F8E468e316CcB213C712A</code></a></td><td>seat, two-seed start, stake, every move verified against the rules, deadlines from the block, end and mint; grants PUBLISH on P and A to the session</td><td>wallet: Open · Leave<br>session: Start · Move · Resign · Close · Forfeit<br>anyone: Withdraw · Sunset</td><td>stake 5 POL · float 0.6 POL<br>turn 20 s, 10 after a skip<br>reveal 30 s · idle 10 min</td></tr>
+<tr><td><b>JungleGame</b><br><a href="https://polygonscan.com/address/0x7a879c26Fbd8A6d29fC5cb3e01EEC6848d6aBf98"><code>0x7a879c26Fbd8A6d29fC5cb3e01EEC6848d6aBf98</code></a></td><td>seat, two-seed start, stake, every move verified against the rules, deadlines from the block, end and mint; grants PUBLISH on P and A to the session</td><td>wallet: Open · Leave<br>session: Start · Move · Resign · Close · Forfeit<br>anyone: Withdraw · Sunset</td><td>stake 5 POL · float 0.6 POL<br>turn 20 s, 10 after a skip<br>reveal 30 s · idle 10 min</td></tr>
 <tr><td><b>JungleRules</b></td><td>library: the rules ported from the JS game; every move checked for legality and applied</td><td>JungleGame, on every move</td><td>library, no address</td></tr>
 <tr><td><b>JungleRulesTables</b></td><td>library: the rules' tables, generated from the engine</td><td>JungleRules</td><td>library, no address</td></tr>
 <tr><td><b>JungleSeed</b></td><td>library: what the seed decides (board, colours, sides), ported from the JS game</td><td>JungleGame, at the start<br>JungleMemento, for the image</td><td>library, no address</td></tr>
 <tr><td><b>JunglePass</b><br><a href="https://polygonscan.com/address/0x8049461bE5C04e91957D5c5Fb1Bd6829edc08396"><code>0x8049461bE5C04e91957D5c5Fb1Bd6829edc08396</code></a></td><td>gate: Jungle didakoo pass editions (ids 1, 5, 6, 7, 8)</td><td>JungleGame, when the seat opens and at each seed<br>client, before the popup</td><td>read-only</td></tr>
-<tr><td><b>JungleMemento</b><br><a href="https://polygonscan.com/address/0x936ad1A3dF9f70d26be95e479E02b2Cf15f96Cd6"><code>0x936ad1A3dF9f70d26be95e479E02b2Cf15f96Cd6</code></a></td><td>record token minted to the winner (tokenId = gameId); its holder registry is the ranking</td><td>JungleGame: mint<br>client: holdersCount · holdersPage</td><td>image and replay on-chain</td></tr>
-<tr><td><b>JungleArt</b><br><a href="https://polygonscan.com/address/0x37f589eb70238d87565edf6F241dAcF6c81ad9CC"><code>0x37f589eb70238d87565edf6F241dAcF6c81ad9CC</code></a></td><td>the shapes of the record token image, generated from the bundle SVGs</td><td>JungleMemento</td><td>separate because of the 24 KB size cap</td></tr>
-<tr><td><b>JungleReplay</b><br><a href="https://polygonscan.com/address/0x32851e620E958709BC061d82dB466BD48AD1D82F"><code>0x32851e620E958709BC061d82dB466BD48AD1D82F</code></a></td><td>the replay script of the record token: <code>animation_url</code></td><td>JungleMemento</td><td>omitted above 2000 turns</td></tr>
+<tr><td><b>JungleMemento</b><br><a href="https://polygonscan.com/address/0x4F45ACcEC6f7e6C9cCC4de8D08c395f1Eb58Fd1c"><code>0x4F45ACcEC6f7e6C9cCC4de8D08c395f1Eb58Fd1c</code></a></td><td>record token minted to the winner (tokenId = gameId); its holder registry is the ranking</td><td>JungleGame: mint<br>client: holdersCount · holdersPage</td><td>image and replay on-chain</td></tr>
+<tr><td><b>JungleArt</b><br><a href="https://polygonscan.com/address/0xCeb4b09dF6b7cb7E253f7FA5DE4597a579147Ab7"><code>0xCeb4b09dF6b7cb7E253f7FA5DE4597a579147Ab7</code></a></td><td>the shapes of the record token image, generated from the bundle SVGs</td><td>JungleMemento</td><td>separate because of the 24 KB size cap</td></tr>
+<tr><td><b>JungleReplay</b><br><a href="https://polygonscan.com/address/0x4947B09f78eF3bA93b349EEe5aBfce67B999F2F6"><code>0x4947B09f78eF3bA93b349EEe5aBfce67B999F2F6</code></a></td><td>the replay script of the record token: <code>animation_url</code></td><td>JungleMemento</td><td>omitted above 2000 turns</td></tr>
 </table>
 
 
@@ -230,6 +229,7 @@ ipfs add -rQ --only-hash --cid-version 1 dist
 
 # 6. compare the printed CID with the content hash of jungle.didakoo.eth
 ```
+
 
 ## Copyright
 © 2026 didakoo. All rights reserved: code and artwork. 

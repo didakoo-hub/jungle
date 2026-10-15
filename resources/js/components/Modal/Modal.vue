@@ -5,7 +5,7 @@
                 <div class="d-flex container-sm align-items-center justify-content-between flex-wrap flex-row">
                     <img class="modal_logo" :src="ddd" alt="didakoo">
                     <span style='font-size:13px;' class="version_sign"> Jungle </span>
-                    <span style='font-size:13px;' class="version_sign"> v 1.1</span>
+                    <span style='font-size:13px;' class="version_sign"> v 1.2</span>
                 </div>
                 <div v-if="checkGameStatus" class="console-screen d-flex justify-content-center align-items-center">
                     <p  class="main_message" :class="{ centered: !!message }">

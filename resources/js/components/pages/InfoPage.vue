@@ -5,12 +5,13 @@
                 <div style="margin-top:30px;" class="container-sm pepar">
 
                     <h3 class='h2_x' id="about">
-                        Jungle v 1.1
+                        Jungle v 1.2
                     </h3>
                     <p class="warning">
                         <Icon name="triangle-exclamation" /> WARNING: This is a decentralized browser game, a static single-page app pinned on IPFS. The code is open source and
                         malicious actors can publish illegal, compromised copies of the game: play only at jungle.didakoo.eth (.limo ENS gateway)
                         or redirected from didakoo.com.
+                        Check the <a href="https://github.com/didakoo-hub/jungle" target="_blank" rel="noopener noreferrer">official GitHub repository</a> for the source code and more details.
                     </p>
 
                     <p class="warning">
@@ -36,7 +37,7 @@
                     </h2>
                     <p>
                         Jungle is a 1 vs 1 board game played on a 7 × 9 grid. 
-                        Each player has 8 animals, each with its own power.
+                        Each player has 8 animals, each with a different strength.
                     </p>
                     <p>
                         The initial positions of the animals change with every match.
@@ -73,7 +74,7 @@
                     </p>
                     <p>
                         You cannot move the same animal more than {{ limit }} times in a row. 
-                        After the {{ limit }}th move it is EXHAUSTED: for one turn it cannot move, and any opposing animal can eat it.
+                        After the {{ limit }}th move the animal becomes EXHAUSTED: for one turn it cannot move, and any opposing animal can eat it.
                     </p>
                     
                     <p>&ensp;</p>
@@ -119,19 +120,19 @@
                         Bot <Icon name="bolt" />
                     </h3>
                     <p>
-                        Play against the computer. No wallet needed, and it is free. 
-                        The bot's strength ranges from LV 1 to LV 7. It changes randomly with every match.
+                        Play against the computer. No wallet needed. 
+                        Every match has a random bot level, from LV 1 to LV 7.
                     </p>
                     <h3 class="h3_x">
                         Private <img :src=Private alt="private" class="imgSize">
                     </h3>
                     <p>
-                        Press COPY LINK and share it with Player 2 to start the match. 
+                        Press COPY LINK and share it with Player 2 for a private match. 
                         Guests and wallets can't play against each other.
                     </p>
                     <ul>
                         <li>Guests play for free, with nothing at stake.</li>
-                        <li>Wallets play on-chain: every move is a transaction, signed in the background by a session key the game keeps in your browser. MetaMask asks only once per match, to open your seat: you stake 5 POL and need a Jungle pass token in your wallet. The winner takes both stakes and gets the game record token.</li>
+                        <li>Wallets play on-chain: every move is a transaction signed by a session key, so MetaMask asks for confirmation only at the start of the match. To play this mode you need a Jungle pass token and stake 5 POL per match. The winner takes both players' stakes and gets a record token of the match.</li>
                     </ul>
                     <p>
                         Every record token held is a point in the ranking. 
@@ -151,7 +152,7 @@
                         Collections
                     </h2>
                     <p>
-                        Native (records, pass) and third-party collections recognized by the game that unlock extra content:
+                        NFT collections recognized by the game, and what they unlock:
                     </p>
                     <ul style='font-family: monospace;'>
                         <li><a href="https://opensea.io/collection/jungle-didakoo-pass" target="_blank" rel="noopener noreferrer">Jungle didakoo pass</a> (Polygon) - pass, and the four extra colours</li>
@@ -164,7 +165,7 @@
                     <p>&ensp;</p>
 
                     <p>
-                        <Icon name="copyright" /> 2026 didakoo. All rights reserved: code and artwork. Check the <a href="https://github.com/didakoo-hub/jungle" target="_blank" rel="noopener noreferrer">official GitHub repository</a> for more documentation.
+                        <Icon name="copyright" /> 2026 didakoo. All rights reserved: code and artwork. 
                     </p>
 
                     <p>&ensp;</p>
@@ -218,6 +219,13 @@ export default {
 <style scoped>
 .warning {
     color: #f6993f;
+}
+.warning a {
+    color: inherit;
+    text-decoration: underline;
+}
+.warning a:hover {
+    color: #007bff;
 }
 
 h2.h2_x {

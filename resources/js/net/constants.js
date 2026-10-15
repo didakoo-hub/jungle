@@ -1,4 +1,4 @@
-export const PROTOCOL_V = 1;
+export const PROTOCOL_V = 3;
 
 export const CHAIN_ID = 137;
 
@@ -25,11 +25,11 @@ export const TRIAL_STREAM = false;
 
 export const STREAMR_NETWORK = "polygon";
 
-export const MATCH_ADDRESS = "0xB4E544179A2892f0982F8E468e316CcB213C712A";
+export const MATCH_ADDRESS = "0x7a879c26Fbd8A6d29fC5cb3e01EEC6848d6aBf98";
 
-export const BLOCK_MATCH = 94904362;
+export const BLOCK_MATCH = 95505069;
 
-export const MEMENTO_ADDRESS = "0x936ad1A3dF9f70d26be95e479E02b2Cf15f96Cd6";
+export const MEMENTO_ADDRESS = "0x4F45ACcEC6f7e6C9cCC4de8D08c395f1Eb58Fd1c";
 
 export const PASS_ADDRESS = "0x8049461bE5C04e91957D5c5Fb1Bd6829edc08396";
 

@@ -10,13 +10,16 @@
       xmlns="http://www.w3.org/2000/svg"
     >
         <image :href="pyramidSrc(color)" ></image>
+        <Eye v-if="pyramidRim(color)" :center="{ x: x + width / 2, y: y + height * 0.58 }" :target="target" :rim="pyramidRim(color)" />
     </svg>
   </g>
 </template>
 <script>
-import { pyramidSrc } from "./boardAssets.js";
+import { pyramidRim, pyramidSrc } from "./boardAssets.js";
+import Eye from "./Eye.vue";
   export default {
-    methods: { pyramidSrc },
+    components: { Eye },
+    methods: { pyramidRim, pyramidSrc },
     props:{
       x: {
         type: Number,
@@ -36,6 +39,10 @@ import { pyramidSrc } from "./boardAssets.js";
       },
       color: {
           type: Number,
+      },
+      target: {
+          type: Object,
+          default: null,
       },
     },
   }

@@ -394,7 +394,18 @@ contract JungleGameTest is Table {
         (JungleGame.Deprecation memory d, bytes memory firma) = tramonto(CHIAVE_D, 2, uint64(block.timestamp));
         vm.prank(address(0xbeef));
         game.jungledidakooSunset(d, firma);
-        assertTrue(game.sunset(), "la porta e' chiusa");
+        assertEq(game.minVersion(), 2, "la versione minima sale");
+    }
+
+    function accordoV2() internal view returns (JungleGame.Match memory m, bytes memory sigA, bytes memory sigB) {
+        m = accordo();
+        m.v = 2;
+        uint256 chiaveA = vm.addr(0xb0b5e55) == sessionA ? 0xb0b5e55 : 0xca4015e55;
+        uint256 chiaveB = chiaveA == 0xb0b5e55 ? 0xca4015e55 : 0xb0b5e55;
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(chiaveA, game.matchHash(m));
+        sigA = abi.encodePacked(r, s, v);
+        (v, r, s) = vm.sign(chiaveB, game.matchHash(m));
+        sigB = abi.encodePacked(r, s, v);
     }
 
     function test_il_tramonto_si_hasha_come_il_bundle() public {
@@ -404,18 +415,13 @@ contract JungleGameTest is Table {
         );
         assertEq(game.deprecationHash(d), vm.parseJsonBytes32(json, ".game.deprecationHash"));
         game.jungledidakooSunset(d, vm.parseJsonBytes(json, ".game.deprecationSignature"));
-        assertTrue(game.sunset());
+        assertEq(game.minVersion(), d.minVersion);
     }
 
-    function test_dopo_il_tramonto_nessun_posto_si_apre_e_quelli_aperti_tornano() public {
+    function test_dopo_il_tramonto_i_posti_si_aprono_e_tornano() public {
         apri(a, sessionA);
         spegni();
-
-        compra(b);
-        vm.deal(b, POSTA);
-        vm.prank(b);
-        vm.expectRevert(JungleGame.AfterSunset.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionB);
+        apri(b, sessionB);
 
         uint256 prima = a.balance;
         vm.prank(a);
@@ -423,7 +429,7 @@ contract JungleGameTest is Table {
         assertEq(a.balance - prima, POSTA - game.FLOAT(), "il posto torna come sempre");
     }
 
-    function test_dopo_il_tramonto_nessuna_partita_comincia() public {
+    function test_dopo_il_tramonto_la_versione_vecchia_non_comincia() public {
         apri(a, sessionA);
         apri(b, sessionB);
         spegni();
@@ -431,8 +437,20 @@ contract JungleGameTest is Table {
         bytes memory sigA = firmaA();
         bytes memory sigB = firmaB();
         vm.prank(sessionA);
-        vm.expectRevert(JungleGame.AfterSunset.selector);
+        vm.expectRevert(JungleGame.VersionTooOld.selector);
         game.jungledidakooStart(m, sigA, sigB, semeA());
+    }
+
+    function test_dopo_il_tramonto_la_versione_nuova_comincia() public {
+        apri(a, sessionA);
+        apri(b, sessionB);
+        spegni();
+        (JungleGame.Match memory m, bytes memory sigA, bytes memory sigB) = accordoV2();
+        vm.prank(sessionA);
+        game.jungledidakooStart(m, sigA, sigB, semeA());
+        vm.prank(sessionB);
+        game.jungledidakooStart(m, sigA, sigB, semeB());
+        assertEq(game.gameOf(m.gameId).status, 1, "la v2 gioca sullo stesso contratto");
     }
 
     function test_la_partita_in_rivelazione_parte_lo_stesso() public {
@@ -454,7 +472,7 @@ contract JungleGameTest is Table {
         assertEq(memento.ownerOf(gameId), bianco, "e il commemorativo");
     }
 
-    function test_il_tramonto_vuole_la_firma_di_D_e_una_volta_sola() public {
+    function test_il_tramonto_vuole_la_firma_di_D_e_solo_sale() public {
         (JungleGame.Deprecation memory d, bytes memory firma) = tramonto(0xbad, 2, uint64(block.timestamp));
         vm.expectRevert(JungleGame.BadSignature.selector);
         game.jungledidakooSunset(d, firma);
@@ -468,10 +486,14 @@ contract JungleGameTest is Table {
         game.jungledidakooSunset(d, firma);
         vm.warp(block.timestamp + 60);
         game.jungledidakooSunset(d, firma);
-        assertTrue(game.sunset());
+        assertEq(game.minVersion(), 2);
 
-        vm.expectRevert(JungleGame.AfterSunset.selector);
+        vm.expectRevert(JungleGame.BadDeprecation.selector);
         game.jungledidakooSunset(d, firma);
+
+        (d, firma) = tramonto(CHIAVE_D, 3, uint64(block.timestamp));
+        game.jungledidakooSunset(d, firma);
+        assertEq(game.minVersion(), 3, "e sale ancora");
     }
 
     function test_senza_D_nessun_tramonto() public {

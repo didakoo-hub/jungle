@@ -21,7 +21,7 @@ import OldVersion from "./components/pages/OldVersion.vue";
 import NoStorage from "./components/pages/NoStorage.vue";
 import { storageBlocked } from "./game/storage.js";
 import WalletWait from "./components/pages/WalletWait.vue";
-import { switchOffLoader, switchOffFreeLoader, imagesPreloaded } from "./components/includes/loader.js";
+import { switchOffLoader, switchOffFreeLoader } from "./components/includes/loader.js";
 import { installControllers } from "./components/includes/controllers.js";
 
 Vue.use(VueRouter);
@@ -37,8 +37,7 @@ if (storageBlocked()) {
 } else {
     store.commit("SET_POPUP", popupOpen());
     onPopup((opened) => store.commit("SET_POPUP", opened));
-    const images = imagesPreloaded();
-    awaitTheWallet().then(start).then(() => images).then(switchOffFreeLoader);
+    awaitTheWallet().then(start).then(switchOffFreeLoader);
 }
 
 async function awaitTheWallet() {

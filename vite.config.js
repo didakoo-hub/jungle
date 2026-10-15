@@ -7,7 +7,7 @@ const IMAGE = /\.(svg|webp|png|jpe?g|gif)$/
 export default {
     base: './',
     publicDir: 'public',
-    build: { outDir: 'dist' },
+    build: { outDir: 'dist', assetsInlineLimit: (file) => IMAGE.test(file) || undefined },
     esbuild: { legalComments: 'eof' },
     resolve: {
         alias: [{
@@ -24,14 +24,6 @@ export default {
             apply: 'build',
             transformIndexHtml: (html) => html.replace(
                 '<meta charset="utf-8">', '<meta charset="utf-8">\n    ' + metaCsp()),
-        },
-        {
-            name: 'preload-images',
-            apply: 'build',
-            transformIndexHtml: (html, { bundle }) => Object.keys(bundle)
-                .filter((name) => IMAGE.test(name))
-                .sort()
-                .map((name) => ({ tag: 'link', attrs: { rel: 'preload', as: 'image', href: './' + name }, injectTo: 'head' })),
         },
     ],
 }

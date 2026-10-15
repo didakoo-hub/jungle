@@ -252,8 +252,8 @@ contract JungleMemento {
 
     function emblem() public view returns (string memory) {
         return string.concat(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="107 107 800 800" width="800" height="800">'
-            '<rect x="107" y="107" width="800" height="800" fill="#000000"/><g fill="',
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 245 800 800" width="800" height="800">'
+            '<rect x="100" y="245" width="800" height="800" fill="#000000"/><g fill="',
             _pieceColor(4),
             '" fill-rule="evenodd">',
             art.animal(7),
@@ -412,7 +412,7 @@ contract JungleMemento {
     }
 
     function _bandColor(uint8 id) private pure returns (string memory) {
-        return id == 5 ? "#8a1fcc" : _pieceColor(id);
+        return id == 5 ? "#fefffe" : _pieceColor(id);
     }
 
     function _defs(Drawing memory d, uint128 board) private view returns (string memory) {
@@ -470,8 +470,7 @@ contract JungleMemento {
     function _piece(Drawing memory d, uint256 slot, uint256 cell, bool ids) private view returns (string memory) {
         uint256 animal = slot % 8;
         uint8 color = slot < 8 ? d.colors & 7 : (d.colors >> 3) & 7;
-        bool mouse = animal == 0;
-        string memory fill = (mouse && color == 3 && _water(cell)) ? "#99b3e6" : _pieceColor(color);
+        string memory fill = (animal == 0 && color == 3 && _water(cell)) ? "#99b3e6" : _pieceColor(color);
 
         return string.concat(
             '<use xlink:href="#a',
@@ -482,10 +481,10 @@ contract JungleMemento {
             '" fill="',
             fill,
             ids ? '" style="transform:translate(' : '" transform="translate(',
-            _u((cell % 7) * 80 + (mouse ? 10 : 0)),
+            _u((cell % 7) * 80),
             ids ? "px," : " ",
             _u((cell / 7) * 80),
-            ids ? (mouse ? 'px) scale(.06)"/>' : 'px) scale(.08)"/>') : (mouse ? ') scale(.06)"/>' : ') scale(.08)"/>')
+            ids ? 'px) scale(.08)"/>' : ') scale(.08)"/>'
         );
     }
 

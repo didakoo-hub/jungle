@@ -124,6 +124,7 @@
                     :width="boardSettings.square.width"
                     :height="boardSettings.square.height"
                     :color="boardColors?.black"
+                    :target="nearestFoe.black"
                 />
             </g>
             <g @click="squareClick(8, 3)" :class="{ 'placeholder-in-flight': inFlightOn(8, 3) }">
@@ -134,6 +135,7 @@
                     :width="boardSettings.square.width"
                     :height="boardSettings.square.height"
                     :color="boardColors?.white"
+                    :target="nearestFoe.white"
                 />
             </g>
             <g class="squares">
@@ -163,7 +165,7 @@
                                 :key="square.code"
                                 :name="square.content.piece"
                                 :x="square.content.x"
-                                :y="square.content.y + 10"
+                                :y="square.content.y"
                                 :transformX="gamePieceMoveCoords.toX"
                                 :transformY="gamePieceMoveCoords.toY"
                                 :isMoves="
@@ -532,6 +534,25 @@ export default {
                     ...this.viewPosition(rowIndex, colIndex),
                 };
             });
+        },
+        nearestFoe() {
+            const dens = { black: { row: 0, col: 3 }, white: { row: 8, col: 3 } };
+            const target = {};
+            for (const [color, den] of Object.entries(dens)) {
+                let best = null;
+                for (const line of this.squares) {
+                    for (const cell of line) {
+                        if (!cell.content.piece || cell.content.color === color) continue;
+                        const distance = Math.hypot(cell.row - den.row, cell.col - den.col);
+                        if (!best || distance < best.distance) best = { distance, cell };
+                    }
+                }
+                target[color] = best && {
+                    x: best.cell.x + best.cell.width / 2,
+                    y: best.cell.y + best.cell.height / 2,
+                };
+            }
+            return target;
         },
         humanBlockedAnimal() {
             if (this.winner) return null;

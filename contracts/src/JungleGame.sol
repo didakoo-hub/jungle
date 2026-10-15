@@ -109,11 +109,10 @@ contract JungleGame {
     }
 
     IJunglePass public immutable pass;
-    uint16 public immutable minVersion;
+    uint16 public minVersion;
     bytes32 public immutable gameDomainSeparator;
 
     address public immutable deprecator;
-    bool public sunset;
 
     IStreamRegistry public immutable registry;
     string public channelP;
@@ -184,7 +183,6 @@ contract JungleGame {
     error StillPlaying();
     error PayoutFailed();
     error Reentered();
-    error AfterSunset();
     error BadDeprecation();
     error NotYet();
 
@@ -222,7 +220,6 @@ contract JungleGame {
     }
 
     function jungledidakooOpen(address session) external payable nonReentrant {
-        if (sunset) revert AfterSunset();
         if (pass.balanceOf(msg.sender) == 0) revert NoPass();
         if (msg.value != STAKE) revert BadStake();
         if (session == address(0) || session == msg.sender) revert BadSession();
@@ -257,14 +254,13 @@ contract JungleGame {
     ) external nonReentrant {
         uint256 gas0 = gasleft();
 
-        if (m.v < minVersion || m.v == 0) revert VersionTooOld();
         if (m.category != ARENA && m.category != PRIVATE) revert BadCategory();
         if (m.repetitionLimit != REPETITION_LIMIT || uint160(m.a) >= uint160(m.b)) revert BadMatch();
         if (m.commitA == m.commitB) revert SameCommit();
         if (m.gameId != gameIdOf(m.a, m.b, m.commitA, m.commitB, m.t)) revert BadMatch();
         Game storage g = games[m.gameId];
         if (g.status != 0 && g.status != REVEALING) revert AlreadyStarted();
-        if (sunset && g.status == 0) revert AfterSunset();
+        if (g.status == 0 && (m.v < minVersion || m.v == 0)) revert VersionTooOld();
 
         (Seat memory seatA, Seat memory seatB) = _posti(m);
         uint8 lato = msg.sender == seatA.session ? 1 : 2;
@@ -421,13 +417,12 @@ contract JungleGame {
     }
 
     function jungledidakooSunset(Deprecation calldata d, bytes calldata signature) external {
-        if (sunset) revert AfterSunset();
         if (d.minVersion <= minVersion) revert BadDeprecation();
         if (block.timestamp < d.notBefore) revert NotYet();
         address chi = _recover(deprecationHash(d), signature);
         if (chi == address(0) || chi != deprecator) revert BadSignature();
 
-        sunset = true;
+        minVersion = d.minVersion;
         emit Sunset(d.minVersion, d.notBefore);
     }
 

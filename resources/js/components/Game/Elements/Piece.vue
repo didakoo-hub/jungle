@@ -13,12 +13,14 @@
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
         >
-            <image :href="animalSrc(name, avatarColor, water)"></image>
+            <image class="animal" :href="animalSrc(name, avatarColor, water)" :style="imageStyle"></image>
         </svg>
     </g>
 </template>
 <script>
 import { animalSrc } from "./boardAssets.js";
+import { PIECE_SCALE, pieceFrame } from "./pieceFrame.js";
+
 export default {
     methods: { animalSrc },
     props: {
@@ -61,11 +63,13 @@ export default {
         },
     },
     computed: {
-        viewPort(){
-            if(this.name ==='mouse'){
-                return '0 -50 300 400'
-            }
-            return '0 0 400 400'
+        viewPort() {
+            const { x, y, size } = pieceFrame(this.name);
+            return `${x} ${y} ${size} ${size}`;
+        },
+        imageStyle() {
+            const { center, bottom } = pieceFrame(this.name);
+            return { transformOrigin: `${center}px ${bottom}px`, "--piece-scale": PIECE_SCALE };
         },
         pieceTransformStyles() {
             if (this.isMoves) {
@@ -113,6 +117,16 @@ export default {
 <style>
 svg image {
     width: 100%;
+}
+.chesspiece image.animal {
+    width: 400px;
+    height: 400px;
+    transform: scale(var(--piece-scale));
+}
+@media (pointer: coarse) and (max-width: 599px), (pointer: coarse) and (max-height: 599px) {
+    .chesspiece image.animal {
+        transform: none;
+    }
 }
 .animation-to-left {
     animation: moveToLeft 0.3s ease-in;

@@ -8,7 +8,7 @@
             >
                 <img class="modal_logo" :src="ddd" alt="didakoo" />
                 <span class="version_sign text-white">{{ connected ? "Account" : "Login" }}</span>
-                <span class="version_sign text-white version-modal">v 1.1</span>
+                <span class="version_sign text-white version-modal">v 1.2</span>
             </div>
 
             <template v-if="connected">

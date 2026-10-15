@@ -10,7 +10,7 @@
                 >
                     <div
                         class="square"
-                        :class="{ highlighted: menuSelected === 0 }"
+                        :class="{ 'square--selected': menuSelected === 0 }"
                     >
                         <Icon
                             name="circle"
@@ -36,7 +36,7 @@
                     <div id="modalz">
                         <div
                             class="square"
-                            :class="{ highlighted: menuSelected === 1 }"
+                            :class="{ 'square--selected': menuSelected === 1 }"
                         >
 
                             <i style="font-family: monospace" id="redj"
@@ -56,7 +56,7 @@
                     <div id="modaly">
                         <div
                             class="square"
-                            :class="{ highlighted: menuSelected === 2 }"
+                            :class="{ 'square--selected': menuSelected === 2 }"
                         >
                             <i style="font-family: monospace" id="redj" class="label_instructions"
                                 >HOW TO PLAY</i
@@ -252,8 +252,8 @@ export default {
     }
 }
 
-.highlighted::before,
-.highlighted::after {
+.square--selected::before,
+.square--selected::after {
     position: absolute;
     font-family: monospace;
     color: black;
@@ -263,7 +263,7 @@ export default {
     pointer-events: none;
 }
 
-.highlighted::before {
+.square--selected::before {
     content: ">";
     right: 100%;
     top: 50%;
@@ -271,7 +271,7 @@ export default {
     transform: translateY(-50%);
 }
 
-.highlighted::after {
+.square--selected::after {
     content: "<";
     left: 100%;
     top: 50%;
@@ -280,7 +280,7 @@ export default {
 }
 
 @media (min-width: 500px) {
-    .highlighted::before {
+    .square--selected::before {
         right: auto;
         top: auto;
         margin-right: 0;
@@ -290,7 +290,7 @@ export default {
         transform: translateX(-50%) rotate(90deg);
     }
 
-    .highlighted::after {
+    .square--selected::after {
         left: 50%;
         top: 100%;
         margin-left: 0;

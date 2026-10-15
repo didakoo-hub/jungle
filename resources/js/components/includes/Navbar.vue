@@ -11,7 +11,7 @@
                         :src="ddd"
                         alt="didakoo"
                     />
-                    <span @click="getLinkBurger()" style='font-size:13px; color:white;' class="version_sign"> Jungle v 1.1</span>
+                    <span @click="getLinkBurger()" style='font-size:13px; color:white;' class="version_sign"> Jungle v 1.2</span>
             </div>
 
 
