@@ -16,6 +16,7 @@
         "vuex": "3.1.0"
     },
     "dependencies": {
+        "@farcaster/miniapp-sdk": "^0.3.0",
         "@noble/curves": "1.9.7",
         "@streamr/sdk": "^103.3.2",
         "buffer": "^6.0.3",

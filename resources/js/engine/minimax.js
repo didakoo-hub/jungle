@@ -1002,6 +1002,10 @@ export function makeEvaluate(overrides) {
 
 const SCORE_TERMINAL = 1e9;
 
+function terminalScore(depth) {
+    return SCORE_TERMINAL + (depth > 0 ? depth : 0);
+}
+
 const TT_BIT = 18;
 const TT_CUT = 1 << TT_BIT;
 const TT_MASK = TT_CUT - 1;
@@ -1148,10 +1152,10 @@ function searchNode(
     canNull = true
 ) {
     if (board.piece[DEN_BLACK_I] >= 0) {
-        return playerColor === "white" ? SCORE_TERMINAL : -SCORE_TERMINAL;
+        return playerColor === "white" ? terminalScore(depth) : -terminalScore(depth);
     }
     if (board.piece[DEN_WHITE_I] >= 0) {
-        return playerColor === "black" ? SCORE_TERMINAL : -SCORE_TERMINAL;
+        return playerColor === "black" ? terminalScore(depth) : -terminalScore(depth);
     }
 
     if (hashHi === null) {
@@ -1502,7 +1506,7 @@ export function calculateBestMove(
     }
 
     const winMove = checkPossibleWin(work, validMoves, color);
-    if (winMove) return raw ? { score: SCORE_TERMINAL, moves: [winMove] } : winMove;
+    if (winMove) return raw ? { score: terminalScore(depth - 1), moves: [winMove] } : winMove;
 
     if (slice) {
         validMoves = validMoves.filter((_, i) => i % slice.n === slice.k);

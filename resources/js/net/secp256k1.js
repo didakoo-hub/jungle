@@ -1,7 +1,5 @@
 import { secp256k1 } from "@noble/curves/secp256k1";
 
-// Stands in for the `secp256k1` package in the browser bundle (vite.config.js), so that
-// @streamr/utils signs without elliptic. Only the three calls Streamr makes.
 
 const outputOf = (output = (len) => new Uint8Array(len), length) =>
     typeof output === "function" ? output(length) : output;

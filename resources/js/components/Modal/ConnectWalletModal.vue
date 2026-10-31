@@ -8,50 +8,49 @@
             >
                 <img class="modal_logo" :src="ddd" alt="didakoo" />
                 <span class="version_sign text-white">{{ connected ? "Account" : "Login" }}</span>
-                <span class="version_sign text-white version-modal">v 1.2</span>
+                <span class="version_sign text-white version-modal">v {{ version }}</span>
             </div>
 
             <template v-if="connected">
                 <div class="connected-player pointer" @click="$emit('profile')">
-                    <img :src="iconaplay1" alt="" class="icon_profile" />
                     <span class="connected-address">{{ alias }}</span>
                 </div>
-                <div class="web3-login-buttons">
+                <div class="web3-login-buttons" v-if="!miniApp">
                     <button
                         class="WalletCoinButton"
                         :class="{ 'WalletCoinButton--selected': cursor === 0 }"
                         id="logout"
                         @click="logout"
                     >
-                        <img :src="Guest" alt="guest" class="imgSize imgGhost" />
                         <p class="WalletCoinButtonText">DISCONNECT</p>
                     </button>
                 </div>
             </template>
 
-            <p v-if="!connected" class="text-center description-login">
-                Play as guest (NO WALLET) or connect MetaMask on the Polygon network.
+            <p v-if="!connected" class="description-login">
+                You are in guest mode.<br>To play <span class="text-nowrap">on-chain</span>, connect MetaMask on the Polygon network{{ farcaster ? " or use the Farcaster app." : "." }}
             </p>
             <div v-if="!connected" class="web3-login-buttons">
                 <button
                     class="WalletCoinButton"
                     :class="{ 'WalletCoinButton--selected': cursor === 0 }"
-                    id="guest"
-                    :disabled="waiting"
-                    @click="loginGuest"
-                >
-                    <img :src="Guest" alt="guest" class="imgSize imgGhost" />
-                    <p class="WalletCoinButtonText">NO WALLET</p>
-                </button>
-                <button
-                    class="WalletCoinButton"
-                    :class="{ 'WalletCoinButton--selected': cursor === 1 }"
                     id="metamask"
                     :disabled="waiting"
                     @click="loginMetamask"
                 >
-                    <img :src="MetamaskWalletImg" alt="MetaMask" class="imgSize" />
                     <p class="WalletCoinButtonText">METAMASK</p>
+                    <img :src="MetamaskWalletImg" alt="MetaMask" class="imgSize" />
+                </button>
+                <button
+                    v-if="farcaster"
+                    class="WalletCoinButton"
+                    :class="{ 'WalletCoinButton--selected': cursor === 1 }"
+                    id="farcaster"
+                    :disabled="waiting"
+                    @click="loginFarcaster"
+                >
+                    <p class="WalletCoinButtonText">FARCASTER</p>
+                    <img :src="FarcasterImg" alt="Farcaster" class="imgSize imgFarcaster" />
                 </button>
             </div>
 
@@ -59,9 +58,7 @@
                 class="text-center mt-2 metamask-message"
                 :style="metamskMessageStyles"
                 v-if="metamaskMessage"
-            >
-                {{ metamaskMessage }}
-            </p>
+            >{{ metamaskMessage }}</p>
             <span
                 class="close1"
                 :class="{ 'close1--selectedOne': cursor === indexClosing }"
@@ -81,18 +78,18 @@ import {
 } from "../../game/identity.js";
 import { hasProvider, walletClosed, requestAccounts, WALLET_NETWORK } from "../../game/wallet.js";
 import { readsNetwork } from "../../net/rpc.js";
-import { ENS_NAME } from "../../net/constants.js";
+import { GAME_VERSION } from "../../net/constants.js";
+import { WALLET_CLOSED, CONNECT_REFUSED, CONNECT_FAILED, OPENING_FARCASTER, OPEN_IN_FARCASTER_TAB } from "../includes/walletNotes.js";
+import { inMiniApp, farcasterOffered, openInFarcaster, touchScreen, handToFarcaster } from "../../farcaster/host.js";
 import { leaveWallet, leaveWarning, warningText, leaveStake } from "../../net/logout.js";
 import ddd from "../../../images/extra_objects/ddd.svg";
 import MetamaskWalletImg from "../../../images/extra_objects/MetaMask_Fox.svg";
-import Guest from "../../../images/extra_objects/ghost.svg";
-import iconaplay1 from "../../../images/extra_objects/iconaplay1.svg";
+import FarcasterImg from "../../../images/extra_objects/farcaster.svg";
 
 const RESET_MESSAGE_MS = 4000;
 
 const WAIT_THRESHOLD_MS = 500;
 
-const GUEST_MODE = "GUEST MODE ...";
 const DISCONNECTED = "DISCONNECTED ...";
 
 const KEYSTROKES = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"]);
@@ -100,10 +97,6 @@ const KEYSTROKES = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "
 const RED = "#D1230F";
 const ORANGE = "#f89406";
 const WHITE = "white";
-const WALLET_CLOSED = {
-    gateway: "MetaMask is off on shared IPFS gateways. Open the game at " + ENS_NAME + ".",
-    iframe: "MetaMask is off inside another site. Open the game directly at " + ENS_NAME + ".",
-};
 
 export default {
     name: "ConnectWalletModal",
@@ -117,14 +110,16 @@ export default {
         return {
             ddd,
             MetamaskWalletImg,
-            Guest,
-            iconaplay1,
+            FarcasterImg,
             metamaskMessage: null,
             metamskMessageStyles: {},
             waiting: false,
             resetHandle: null,
             waitingHandle: null,
             cursor: -1,
+            miniApp: inMiniApp(),
+            farcaster: farcasterOffered(),
+            version: GAME_VERSION,
         };
     },
     computed: {
@@ -136,10 +131,10 @@ export default {
         },
         actions() {
             const buttons = this.connected
-                ? [{ press: this.logout }]
+                ? (this.miniApp ? [] : [{ press: this.logout }])
                 : [
-                    { press: this.loginGuest, suspended: true },
                     { press: this.loginMetamask, suspended: true },
+                    ...(this.farcaster ? [{ press: this.loginFarcaster, suspended: true }] : []),
                 ];
             return [...buttons, { press: this.closeModal }];
         },
@@ -185,10 +180,10 @@ export default {
             const stake = await leaveStake(readsNetwork(WALLET_NETWORK));
             if (stake && this.show && this.metamaskMessage === warningText(kind)) this.showMessage(warningText(kind, stake), ORANGE, 0);
         },
-        showMessage(text, color, reset = RESET_MESSAGE_MS, fontSize) {
+        showMessage(text, color, reset = RESET_MESSAGE_MS) {
             clearTimeout(this.resetHandle);
             this.metamaskMessage = text;
-            this.metamskMessageStyles = fontSize ? { color, fontSize } : { color };
+            this.metamskMessageStyles = { color };
             if (!reset) return;
             this.resetHandle = setTimeout(this.cleanMessage, reset);
         },
@@ -202,20 +197,15 @@ export default {
             this.$emit("notify", { text, type });
             this.$emit("login", identity);
         },
-        loginGuest() {
-            leaveWallet();
-            const guest = ensureIdentity();
-            this.adopt(guest, GUEST_MODE, "info");
-            this.closeModal();
-        },
         async loginMetamask() {
+            this.cleanMessage();
             const closed = walletClosed();
             if (closed) {
                 this.showMessage(WALLET_CLOSED[closed], RED, 0);
                 return;
             }
             if (!hasProvider()) {
-                this.showMessage("MetaMask not detected. The game connects to MetaMask only.", RED, 0, "13px");
+                this.showMessage("MetaMask not detected.", RED, 0);
                 this.$emit("notify", { text: "METAMASK NOT FOUND.", type: "error" });
                 return;
             }
@@ -229,6 +219,7 @@ export default {
                 const saved = saveWalletAddress(address);
                 if (!saved) throw Object.assign(new Error("Malformed address"), { code: "BAD" });
                 this.adopt(saved, abbreviate(saved) + " CONNECTED.", "success");
+                this.closeModal();
             } catch (err) {
                 this.cleanMessage();
                 this.$emit("notify", { text: this.messageError(err), type: "error" });
@@ -238,9 +229,24 @@ export default {
                 this.waiting = false;
             }
         },
+        async loginFarcaster() {
+            if (!touchScreen()) {
+                this.cleanMessage();
+                const behind = await openInFarcaster();
+                if (behind && this.show && !this.waiting && !this.metamaskMessage) this.showMessage(OPEN_IN_FARCASTER_TAB, WHITE, 0);
+                return;
+            }
+            this.waiting = true;
+            this.showMessage(OPENING_FARCASTER, WHITE, 0);
+            const underneath = await handToFarcaster();
+            this.waiting = false;
+            if (!this.show) return;
+            if (underneath) this.$emit("farcaster");
+            this.closeModal();
+        },
         messageError(err) {
-            if (err?.code === 4001) return "Connection rejected in your wallet.";
-            return "Could not connect to the wallet. Try again.";
+            if (err?.code === 4001) return CONNECT_REFUSED;
+            return CONNECT_FAILED;
         },
         logout() {
             leaveWallet();
@@ -346,10 +352,6 @@ export default {
     padding: 20px;
 }
 
-.icon_profile {
-    width: 22px;
-}
-
 .connected-address {
     color: #fff;
     font-size: 16px;
@@ -400,7 +402,7 @@ export default {
     text-transform: uppercase;
     background-clip: border-box;
     color: #fff;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .WalletCoinButton {
@@ -414,6 +416,8 @@ export default {
     width: 150px;
     max-width: 100%;
     display: flex;
+    justify-content: center;
+    align-items: center;
     gap: 10px;
     margin-bottom: 10px;
     cursor: pointer;
@@ -446,33 +450,38 @@ html:not(.keyboard) .WalletCoinButton:hover::after {
     margin-left: 8px;
 }
 
+@media screen and (max-width: 610px), screen and (max-height: 450px) {
+    .WalletCoinButton {
+        width: 120px;
+    }
+}
+
 .WalletCoinButton:disabled {
     opacity: 0.5;
     cursor: default;
 }
 
 .imgSize {
-    max-width: 35px;
+    max-width: 24px;
     margin: 0;
-    align-self: center;
-    padding: 2px 0;
 }
 
-.imgGhost {
-    max-width: 24px;
+.imgFarcaster {
+    max-width: 20px;
 }
 
 .description-login {
     font-size: 13px;
     color: white;
     max-width: min(300px, 100%);
-    margin-bottom: 0;
+    margin: 5px;
 }
 
 .metamask-message {
     font-size: 17px;
     max-width: min(280px, 100%);
     margin-bottom: 0;
+    white-space: pre-line;
 }
 
 </style>

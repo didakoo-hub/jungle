@@ -54,7 +54,6 @@ export function createSession({ match, seed, me, side, state, now = () => Math.f
         return envelope;
     }
 
-    // A move and a Timeout on the same seq, from the same position: the Timeout wins.
     function sameSeq(envelope, typeIts, typeMine) {
         const { type, data, signature: f } = envelope ?? {};
         if (type !== typeIts || !Number.isInteger(data?.seq) || data.gameId !== match.gameId) return null;
@@ -103,12 +102,10 @@ export function createSession({ match, seed, me, side, state, now = () => Math.f
             return log.some((b) => b.data.seq === envelope?.data?.seq && b.signature === envelope?.signature);
         },
 
-        // Its Timeout over my move: I give way.
         deadlineOverMine(envelope) {
             return !!sameSeq(envelope, "timeout", "move");
         },
 
-        // Its late move under my Timeout: my Timeout, to send back.
         myDeadlineUnder(envelope) {
             return sameSeq(envelope, "move", "timeout");
         },

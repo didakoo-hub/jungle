@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {Table} from "./Table.sol";
@@ -36,9 +36,10 @@ contract JungleMementoTest is Table {
     function test_lo_conia_il_contratto_di_partita_al_vincitore() public {
         conia();
         assertEq(memento.ownerOf(gameId), bianco);
-        assertEq(memento.winnerOf(gameId), bianco);
-        assertEq(memento.opponentOf(gameId), nero);
-        assertEq(memento.mintedAt(gameId), uint64(block.timestamp));
+        (,,,,, uint64 coniato, address vincitore, address sconfitto,,) = memento.drawing(gameId);
+        assertEq(vincitore, bianco);
+        assertEq(sconfitto, nero);
+        assertEq(coniato, uint64(block.timestamp));
     }
 
     function test_nessun_altro_conia() public {
@@ -52,7 +53,7 @@ contract JungleMementoTest is Table {
 
     function test_niente_token_niente_letture() public {
         vm.expectRevert(JungleMemento.NoToken.selector);
-        memento.winnerOf(gameId);
+        memento.ownerOf(gameId);
         vm.expectRevert(JungleMemento.NoToken.selector);
         memento.tokenURI(gameId);
         vm.expectRevert(JungleMemento.NoToken.selector);
@@ -94,13 +95,21 @@ contract JungleMementoTest is Table {
         assertEq(quante(lista, "\"trait_type\""), 6, "sei tratti");
         assertEq(vm.parseJsonString(lista, "[0].trait_type"), "Winner");
         assertEq(vm.parseJsonString(lista, "[1].trait_type"), "Opponent");
-        assertEq(vm.parseJsonString(lista, "[2].trait_type"), "Category");
-        assertEq(vm.parseJsonString(lista, "[3].trait_type"), "Minted");
+        assertEq(vm.parseJsonString(lista, "[2].trait_type"), "Mode");
+        assertEq(vm.parseJsonString(lista, "[3].trait_type"), "Date");
         assertEq(vm.parseJsonString(lista, "[4].trait_type"), "Ending");
         assertEq(vm.parseJsonString(lista, "[5].trait_type"), "Moves");
         assertEq(vm.parseJsonString(lista, "[2].value"), "Arena");
         assertEq(vm.parseJsonString(lista, "[4].value"), "Pyramid");
         assertEq(vm.parseJsonUint(lista, "[5].value"), quantiPly);
+    }
+
+    function test_la_resa_e_resigned() public {
+        avvia();
+        vm.prank(sessioneNera);
+        game.jungledidakooResign(gameId);
+        string memory lista = string.concat("[", memento.attributes(gameId), "]");
+        assertEq(vm.parseJsonString(lista, "[4].value"), "Resigned");
     }
 
     function test_il_rigioco_non_lampeggia() public {
@@ -282,49 +291,30 @@ contract JungleMementoTest is Table {
         assertEq(memento.ownerOf(gameId), nero);
         assertEq(memento.balanceOf(bianco), 0);
         assertEq(memento.balanceOf(nero), 1);
-        assertEq(memento.winnerOf(gameId), bianco, "chi ha vinto non cambia");
+        (,,,,,, address vincitore,,,) = memento.drawing(gameId);
+        assertEq(vincitore, bianco, "chi ha vinto non cambia");
     }
 
-    function test_il_registro_dei_detentori_segue_i_token() public {
-        assertEq(memento.holdersCount(), 0);
+    function test_tokens_of_follows_the_tokens() public {
         assertEq(memento.totalMinted(), 0);
         conia();
-        assertEq(memento.holdersCount(), 1);
         assertEq(memento.totalMinted(), 1);
-        (address[] memory chi, uint256[] memory saldi, uint64[] memory da) = memento.holdersPage(0, 10);
-        assertEq(chi.length, 1);
-        assertEq(chi[0], bianco);
-        assertEq(saldi[0], 1);
-        assertEq(da[0], uint64(block.timestamp), "il conio dice da quando tiene il punteggio");
-        uint256[] memory suoi = memento.tokensOf(bianco);
-        assertEq(suoi.length, 1);
-        assertEq(suoi[0], gameId);
+        uint256[] memory owned = memento.tokensOf(bianco);
+        assertEq(owned.length, 1);
+        assertEq(owned[0], gameId);
 
-        vm.warp(block.timestamp + 1000);
         vm.prank(bianco);
         memento.transferFrom(bianco, nero, gameId);
-        assertEq(memento.holdersCount(), 1, "chi ha ceduto tutto esce");
-        (chi, saldi, da) = memento.holdersPage(0, 10);
-        assertEq(chi[0], nero);
-        assertEq(saldi[0], 1);
-        assertEq(da[0], uint64(block.timestamp), "chi riceve tiene il suo punteggio da adesso");
-        assertEq(memento.heldSince(bianco), 0, "chi esce non tiene piu' niente");
         assertEq(memento.tokensOf(bianco).length, 0);
         assertEq(memento.tokensOf(nero)[0], gameId);
-        assertEq(memento.totalMinted(), 1, "il conio non cambia");
+        assertEq(memento.totalMinted(), 1);
 
         vm.prank(nero);
         memento.transferFrom(nero, bianco, gameId);
         vm.prank(bianco);
         memento.transferFrom(bianco, bianco, gameId);
-        assertEq(memento.holdersCount(), 1);
         assertEq(memento.balanceOf(bianco), 1);
         assertEq(memento.tokensOf(bianco).length, 1);
-
-        (chi,,) = memento.holdersPage(1, 10);
-        assertEq(chi.length, 0);
-        (chi,,) = memento.holdersPage(0, 0);
-        assertEq(chi.length, 0);
     }
 
     function test_trasferisce_solo_chi_puo() public {

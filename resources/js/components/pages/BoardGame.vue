@@ -84,7 +84,6 @@ import { clearFinished } from "../../net/onlineCache.js";
 import icon17 from "../../../images/board/animals/icon-17.svg";
 import tree from "../../../images/board/tree.svg";
 import ddd from "../../../images/extra_objects/ddd.svg";
-import iconaplay1 from "../../../images/extra_objects/iconaplay1.svg";
 
 const INTRO_MS = 5000;
 const READY_WAIT_MS = 1000;
@@ -94,7 +93,7 @@ const READY_WAIT_MS = 1000;
 const NOTICE_DURATION_MS = 3000;
 const CHAIN_HEARTBEAT_MS = 15_000;
 const REFUND_DONE = "LOBBY REFUND COMPLETED";
-const ARENA_PER_WALLET = "Guest players can not play Arena mode.";
+const ARENA_PER_WALLET = "ARENA is for on\u2011chain players only.";
 const WITHOUT_CHAIN = "Wallets play on-chain only: this build has no contract.";
 const VICTORY = "You win";
 const DEFEAT = "GAME OVER";
@@ -159,13 +158,12 @@ export default {
                     },
                     {
                         title: "PRIVATE",
-                        image: iconaplay1,
-                        imageWidth: 22,
                         onclick: this.goOnline,
                     },
                     {
                         title: "ARENA",
                         icon: "globe",
+                        iconSize: 18,
                         onclick: this.goArena,
                     },
                     {
@@ -373,14 +371,8 @@ export default {
         },
         leave() {
             clearGame();
-            this.$router.push("/ranking");
+            this.$router.push("/");
         },
     },
 };
 </script>
-
-<style>
-.error-modal-font {
-    font-family: monospace;
-}
-</style>

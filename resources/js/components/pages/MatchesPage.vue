@@ -53,102 +53,50 @@
             style="max-width: 800px"
             class="rank d-flex container-sm flex-column align-items-center text-white"
         >
-            <div
-                v-for="(player, playerListIndex) in players"
-                :key="player.alias"
-                ref="lines"
-                class="record record-pointer"
-                :class="{ 'record--selected': cursor === playerListIndex }"
-                :style="{ backgroundColor: 'black', textDecoration: 'none' }"
-                @click="openProfile(player.alias)"
-            >
+            <div class="matches">
+                <p v-if="heading" class="matches-heading">{{ heading }}</p>
                 <div
-                    :style="{
-                        color: player.themeColor,
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                    }"
+                    v-for="(match, matchIndex) in records"
+                    :key="match.gameId"
+                    ref="lines"
+                    class="match record-pointer"
+                    :class="{ 'match--selected': cursor === matchIndex || pressed === matchIndex }"
+                    @pointerdown="press($event, matchIndex)"
+                    @click="openToken(match)"
                 >
-                    <p
-                        :style="{
-                            color: player.themeColor,
-                            fontSize: '14.5px',
-                            padding: '10px',
-                            margin: '0',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            fontWeight: 'bold',
-                        }"
-                    >
-                        <span
-                            :style="{
-                                color: player.themeColor,
-                                fontSize: '16px',
-                                fontWeight: 'bold',
-                            }"
-                            >{{ getUserRank(playerListIndex) }}°</span
-                        >
-                        <span
-                            class="icon-tint"
-                            :style="{
-                                color: player.themeColor,
-                                '--icon': icon(player.avatarSrc),
-                                width: '20px',
-                                height: '20px',
-                                marginLeft: '5px',
-                                marginRight: '5px',
-                                marginBottom: '-3px',
-                            }"
-                        ></span>
-                        {{ player.alias }}
+                    <p class="match-line">
+                        <span class="match-text">
+                            <span>{{ dateOf(match) }}</span>
+                            <span>{{ timeOf(match) }}</span>
+                            <span>{{ modeOf(match) }}</span>
+                            <span>{{ endingOf(match) }}</span>
+                            <span>{{ movesOf(match) }}</span>
+                        </span>
                     </p>
+                    <div
+                        v-for="side in match.sides"
+                        :key="side.color"
+                        class="match-side"
+                        :style="{ color: side.themeColor }"
+                    >
+                        <span class="match-address">{{ side.address }}</span>
+                        <span v-if="side.badges.length" class="match-badges">
+                            <span
+                                v-for="badge in side.badges"
+                                :key="badge.name"
+                                class="icon-tint badge-tint"
+                                :title="badge.name"
+                                :style="{
+                                    '--icon': icon(badge.src),
+                                    width: badge.ratio * 14 + 'px',
+                                    height: '14px',
+                                    '--mask-height': badge.scale * 14 + 'px',
+                                }"
+                            ></span>
+                        </span>
+                        <span v-if="side.wins" class="match-win">WIN</span>
+                    </div>
                 </div>
-
-                <div
-                    :style="{
-                        flex: '1',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        gap: '7px',
-                        color: player.themeColor,
-                    }"
-                >
-                    <span
-                        v-for="badge in player.badges"
-                        :key="badge.name"
-                        class="icon-tint"
-                        :title="badge.name"
-                        :style="{
-                            '--icon': icon(badge.src),
-                            width: '16px',
-                            height: '16px',
-                        }"
-                    ></span>
-                </div>
-
-                <span
-                    class="align-items-center"
-                    :style="{
-                        color: player.themeColor,
-                        marginRight: '10px',
-                        whiteSpace: 'nowrap',
-                        backgroundColor: '',
-                        padding: '0 10px',
-                        borderRadius: '20px',
-                        display: 'flex',
-                        fontWeight: 'bold',
-                    }"
-                >
-                    {{ player.power }}
-                    <Icon
-                        name="bolt"
-                        class="ml-1"
-                        :style="{ color: player.themeColor }"
-                    />
-                </span>
             </div>
             <PlayersPagination
                 ref="pages"
@@ -167,17 +115,19 @@
 </template>
 <script>
 import store from "../../store/index.js";
-import { colorOf, getColorStyles } from "../../utilites/getColorByUserColorId.js";
+import { colorOf, themeColorOf } from "../../utilites/getColorByUserColorId.js";
 import { ensureIdentity } from "../../game/identity.js";
 import { WALLET_NETWORK } from "../../game/wallet.js";
-import { ranking, savedRanking, RANKING_HEARTBEAT_MS } from "../../net/ranking.js";
-import { networks, choose, stateOf } from "../../net/tokens.js";
+import {
+    MATCHES_HEARTBEAT_MS, MATCHES_PAGE, latestMatches, matchesCount, moreMatches, savedMatches, walletsOf,
+} from "../../net/matches.js";
+import { END_REASON } from "../../net/messages.js";
+import { MEMENTO_ADDRESS, URL_NFT } from "../../net/constants.js";
+import { networks, colorKept, stateOf } from "../../net/tokens.js";
 import PlayersPagination from "./PlayersPagination.vue";
-import Icon from "../includes/Icon.vue";
 import Loading from "../includes/Loading.vue";
 import icon06 from "../../../images/extra_objects/icon-06.svg";
 import icon05 from "../../../images/extra_objects/icon-05.svg";
-import iconaplayB from "../../../images/extra_objects/iconaplayB.svg";
 import { BAR_TARGETS, barTargets } from "../includes/bar.js";
 import { onMouseMove } from "../includes/mouse.js";
 import { badgesOf, icon } from "../includes/badges.js";
@@ -186,59 +136,68 @@ const ARROWS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 const KEYSTROKES_SELECTION = ["Enter", " ", "Spacebar"];
 const PLAY = "play";
 const PAGES = "pages";
-const inLines = (listing) => listing.map(({ address, wins }) => ({ alias: address, power: wins }));
+const CATEGORIES = ["", "", "A", "P"];
+const ENDINGS = {
+    [END_REASON.PYRAMID]: "PYRAMID",
+    [END_REASON.RESIGNED]: "RESIGNED",
+    [END_REASON.WIPEOUT]: "WIPEOUT",
+};
+const HEADING = "MINTED WINS";
+const HEADING_EMPTY = "NO MINTED WINS YET";
+const two = (n) => String(n).padStart(2, "0");
 const STATES = new Map();
 const REQUESTED = new Set();
 export default {
     components: {
         PlayersPagination,
-        Icon,
         Loading,
     },
     data() {
         return {
-            lines: [],
+            listing: null,
+            saved: [],
             states: Object.fromEntries(STATES),
             currentPage: 1,
-            offset: 50,
-            url: "",
-            backgroundBord: "",
-            colorAddress: "",
-            colorPower: "",
-            avatarSrc: "",
-            textDecorationAddress: "",
-            colorId: "",
+            offset: MATCHES_PAGE,
             isLoading: false,
             cursor: null,
+            pressed: null,
             scrollingMe: false,
             icon06,
             icon05,
         };
     },
     computed: {
+        lines() {
+            return this.listing ? this.listing.lines : this.saved;
+        },
         page() {
             const from = (this.currentPage - 1) * this.offset;
             return this.lines.slice(from, from + this.offset);
         },
         pageReady() {
-            return this.page.every((line) => line.alias.toLowerCase() in this.states);
+            return walletsOf(this.page).every((address) => address in this.states);
         },
-        players() {
+        records() {
             if (!this.pageReady) return [];
-            return this.page.map((line) => {
-                const state = this.states[line.alias.toLowerCase()];
-                return {
-                    ...line,
-                    badges: badgesOf(state?.badges),
-                    ...this.getPlayerStyles(choose(state?.colors) ?? colorOf(line.alias)),
-                };
-            });
+            return this.page.map((line) => ({
+                ...line,
+                sides: [
+                    this.sideOf(line.white, "white", line.winnerIsWhite),
+                    this.sideOf(line.black, "black", !line.winnerIsWhite),
+                ],
+            }));
+        },
+        heading() {
+            if (this.records.length) return HEADING;
+            return this.listing && !this.lines.length ? HEADING_EMPTY : "";
         },
         uponOneLine() {
             return typeof this.cursor === "number";
         },
         pagesCount() {
-            const pages = Math.ceil(this.lines.length / this.offset);
+            const count = this.listing ? matchesCount(this.listing) : this.saved.length;
+            const pages = Math.ceil(count / this.offset);
             return pages > 1 ? pages : 0;
         },
     },
@@ -249,11 +208,38 @@ export default {
         },
         currentPage() {
             if (this.uponOneLine) this.cursor = null;
-            this.decoratePage();
+            this.readPage();
         },
     },
     methods: {
         icon,
+        sideOf(address, color, wins) {
+            const state = this.states[address.toLowerCase()];
+            return {
+                address,
+                color,
+                wins,
+                badges: badgesOf(state?.badges, { fitted: true }),
+                themeColor: themeColorOf(colorKept(address, state?.colors) ?? colorOf(address)),
+            };
+        },
+        dateOf(match) {
+            const t = new Date(match.mintedAt * 1000);
+            return `${two(t.getDate())}-${two(t.getMonth() + 1)}-${t.getFullYear()}`;
+        },
+        timeOf(match) {
+            const t = new Date(match.mintedAt * 1000);
+            return `${two(t.getHours())}:${two(t.getMinutes())}`;
+        },
+        modeOf(match) {
+            return CATEGORIES[match.category] ?? "";
+        },
+        endingOf(match) {
+            return ENDINGS[match.endReason] ?? "";
+        },
+        movesOf(match) {
+            return match.moves === 1 ? "1 MOVE" : `${match.moves} MOVES`;
+        },
         keyboard(event) {
             if (event.key === "Escape") {
                 this.cursor = null;
@@ -263,7 +249,7 @@ export default {
                 event.preventDefault();
                 if (this.cursor === PLAY) this.startGame();
                 else if (this.cursor === PAGES) this.$refs.pages?.press();
-                else if (this.uponOneLine) this.openProfile(this.players[this.cursor].alias);
+                else if (this.uponOneLine) this.openToken(this.records[this.cursor]);
                 else this.$emit("barpress", this.cursor);
                 return;
             }
@@ -303,7 +289,7 @@ export default {
                 }
                 if (this.cursor === PAGES) {
                     event.preventDefault();
-                    this.goA(this.players.length ? this.players.length - 1 : PLAY);
+                    this.goA(this.records.length ? this.records.length - 1 : PLAY);
                     return;
                 }
                 if (window.scrollY > 0) {
@@ -324,7 +310,7 @@ export default {
                 return;
             }
             const next = this.cursor === PLAY ? 0 : this.cursor + 1;
-            if (next >= this.players.length) {
+            if (next >= this.records.length) {
                 event.preventDefault();
                 if (this.pagesCount > 0) this.goA(PAGES);
                 return;
@@ -355,96 +341,84 @@ export default {
             }
             this.cursor = null;
         },
-        openProfile(address) {
-            this.$router.push({
-                path: "avatar",
-                query: { wallet_address: address, from: "ranking" },
-            });
+        press(event, where) {
+            if (event.button === 0) this.pressed = where;
+        },
+        release() {
+            this.pressed = null;
+        },
+        openToken(match) {
+            if (match) window.open(`${URL_NFT}${MEMENTO_ADDRESS}/${match.gameId}`, "_blank", "noopener");
         },
         startGame() {
             store.commit("SET_ALIAS", ensureIdentity());
             this.$router.push({ path: "jungle" });
         },
-        async loadRanking() {
-            this.lines = inLines(savedRanking());
-            this.isLoading = !this.lines.length;
-            if (this.lines.length) this.decorate(this.page, { reread: true });
+        async loadMatches() {
+            this.saved = savedMatches().lines;
+            this.isLoading = !this.saved.length;
+            if (this.saved.length) this.decorate(this.page, { reread: true });
             await this.update();
             this.heartbeat = setInterval(() => {
                 if (!document.hidden) this.update();
-            }, RANKING_HEARTBEAT_MS);
+            }, MATCHES_HEARTBEAT_MS);
         },
 
         async update() {
             if (this.reading) return;
             this.reading = true;
             try {
-                const lines = inLines(await ranking(networks(WALLET_NETWORK)));
+                const listing = await latestMatches(networks(WALLET_NETWORK).polygon, {
+                    upTo: this.currentPage * this.offset,
+                });
+                if (!listing) return;
                 const from = (this.currentPage - 1) * this.offset;
-                await this.decorate(lines.slice(from, from + this.offset));
+                await this.decorate(listing.lines.slice(from, from + this.offset));
                 if (!this.alive) return;
-                this.lines = lines;
+                this.listing = listing;
             } catch {
-                // The saved lines stay on screen.
             } finally {
                 this.reading = false;
                 this.isLoading = false;
             }
         },
 
+        async readPage() {
+            const upTo = this.currentPage * this.offset;
+            if (this.listing && this.listing.lines.length < upTo && !this.reading) {
+                this.reading = true;
+                try {
+                    const listing = await moreMatches(networks(WALLET_NETWORK).polygon, this.listing, upTo);
+                    if (listing && this.alive) this.listing = listing;
+                } catch {
+                } finally {
+                    this.reading = false;
+                }
+            }
+            this.decorate(this.page);
+        },
+
         onComeback() {
             if (!document.hidden) this.update();
         },
 
-        decoratePage() {
-            return this.decorate(this.page);
-        },
-
         async decorate(lines, { reread = false } = {}) {
-            const newOnes = lines
-                .map((line) => line.alias)
-                .filter((address) => reread || !REQUESTED.has(address.toLowerCase()));
+            const newOnes = walletsOf(lines).filter((address) => reread || !REQUESTED.has(address));
             if (!newOnes.length) return;
-            newOnes.forEach((address) => REQUESTED.add(address.toLowerCase()));
+            newOnes.forEach((address) => REQUESTED.add(address));
 
             let state;
             try {
                 state = await stateOf(networks(WALLET_NETWORK), newOnes);
             } catch {
-                newOnes.forEach((address) => REQUESTED.delete(address.toLowerCase()));
+                newOnes.forEach((address) => REQUESTED.delete(address));
                 return;
             }
             newOnes.forEach((address) => {
-                const key = address.toLowerCase();
-                const its = state.get(key) ?? {};
-                STATES.set(key, its);
-                if (this.alive) this.$set(this.states, key, its);
+                const its = state.get(address) ?? {};
+                STATES.set(address, its);
+                if (this.alive) this.$set(this.states, address, its);
             });
-        },
-
-        getUserRank(index) {
-            return `${(this.currentPage - 1) * this.offset + index + 1}`;
-        },
-
-        getPlayerStyles(colorId) {
-            const colorStyles = getColorStyles(colorId);
-
-            let themeColor = colorStyles.backgroundBord ?? "#EDEB52";
-
-            if (colorStyles.backgroundBord === "black") {
-                themeColor = "#CCCCCC";
-            }
-
-            return {
-                backgroundBord: colorStyles.backgroundBord ?? "#EDEB52",
-                themeColor: themeColor,
-                colorAddress: colorStyles.colorAddress ?? "black",
-                colorPower: colorStyles.colorPower ?? "black",
-                avatarSrc: iconaplayB,
-                textDecorationAddress:
-                    colorStyles.textDecorationAddress ?? "black",
-                colorId: colorStyles.colorId,
-            };
         },
     },
     created() {
@@ -456,9 +430,11 @@ export default {
         window.addEventListener("keydown", this.keyboard);
         window.addEventListener("click", this.switchOffCursor);
         window.addEventListener("scroll", this.switchOffCursor, { passive: true });
+        window.addEventListener("pointerup", this.release);
+        window.addEventListener("pointercancel", this.release);
         this.switchOffOnMouse = onMouseMove(() => { this.cursor = null; });
         document.addEventListener("visibilitychange", this.onComeback);
-        this.loadRanking();
+        this.loadMatches();
     },
     beforeDestroy() {
         this.alive = false;
@@ -466,8 +442,113 @@ export default {
         window.removeEventListener("keydown", this.keyboard);
         window.removeEventListener("click", this.switchOffCursor);
         window.removeEventListener("scroll", this.switchOffCursor);
+        window.removeEventListener("pointerup", this.release);
+        window.removeEventListener("pointercancel", this.release);
         document.removeEventListener("visibilitychange", this.onComeback);
         this.switchOffOnMouse?.();
     },
 };
 </script>
+<style>
+#page2 .matches {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(10px, 1fr) auto minmax(10px, 1fr);
+}
+#page2 .matches-heading {
+    grid-column: 1 / -1;
+    margin: 0 0 15px;
+    text-align: center;
+    text-wrap: balance;
+    font-size: 13px;
+    line-height: 1.2;
+    color: #ffffff;
+}
+#page2 .match {
+    position: relative;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    row-gap: 2px;
+    padding: 27px 0 25px;
+    line-height: 1.2;
+    scroll-margin-top: 90px;
+}
+#page2 .match > * {
+    grid-column: 2;
+    min-width: 0;
+}
+#page2 .match-line {
+    position: relative;
+    justify-self: start;
+    max-width: 100%;
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: #ffffff;
+}
+#page2 .match-text {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#page2 .match--selected .match-line {
+    box-shadow: 0 1px 0 #ffffff;
+}
+#page2 .match--selected .match-line::before,
+#page2 .match--selected .match-line::after {
+    position: absolute;
+    top: 0;
+    font-size: 20px;
+    line-height: 15.6px;
+    pointer-events: none;
+}
+#page2 .match--selected .match-line::before {
+    content: ">";
+    right: 100%;
+    margin-right: 6px;
+}
+#page2 .match--selected .match-line::after {
+    content: "<";
+    left: 100%;
+    margin-left: 6px;
+}
+#page2 .match-text > span:not(:last-child)::after {
+    content: "\00b7";
+    display: inline-block;
+    margin: 0 6px;
+    opacity: 0.5;
+}
+#page2 .match-side {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+#page2 .match-address {
+    min-width: 0;
+    font-size: 14.5px;
+    padding: 3px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#page2 .match-badges {
+    display: flex;
+    flex: none;
+    gap: 7px;
+    margin-top: -5px;
+    position: relative;
+    top: 2px;
+}
+#page2 .match-win {
+    flex: none;
+    margin-left: 6px;
+    font-size: 14.5px;
+}
+@media (max-width: 575.98px) {
+    #page2 .rank {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+}
+</style>

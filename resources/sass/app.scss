@@ -6,6 +6,7 @@ body, html {
     margin: 0px;
     background-color: black;
     font-family: monospace;
+    touch-action: manipulation;
 }
 
 .h2_x {
@@ -54,7 +55,7 @@ body, .centerer {
 }
 
 #_box1_ {
-    margin-bottom: 40px;
+    margin-bottom: 39px;
     margin-top: 25px;
 }
 
@@ -83,18 +84,6 @@ body, .centerer {
         );
     background-repeat: repeat;
     background-size: 700px;
-}
-
-.modal-ingame {
-    background:
-        linear-gradient(
-            rgba(0, 0, 0, 0.5),
-            rgba(0, 0, 0, 0.5)
-        ),
-        url("../images/board/bignilo13.webp");
-    background-repeat: repeat;
-    background-position: center;
-    background-size: 1123px;
 }
 
 .modal-outgame {
@@ -250,60 +239,20 @@ body, .centerer {
     mask: var(--icon) no-repeat center / contain;
 }
 
-.record {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    background-color: red;
-}
-
-#page2 .record {
-    width: 100%;
+.badge-tint {
+    -webkit-mask-position: left bottom;
+    mask-position: left bottom;
+    -webkit-mask-size: auto var(--mask-height, 100%);
+    mask-size: auto var(--mask-height, 100%);
 }
 
 #page2 .record-pointer {
     cursor: pointer;
 }
 
-#page2 .record,
-#page4 .records .record {
-    position: relative;
-}
-#page2 .record,
-#page4 .records .record {
-    scroll-margin-top: 90px;
-}
-.record--selected::before,
-.record--selected::after {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #ffffff;
-    font-size: 20px;
-    line-height: 1;
-    pointer-events: none;
-}
-.record--selected::before {
-    content: ">";
-    right: 100%;
-    margin-right: 6px;
-}
-.record--selected::after {
-    content: "<";
-    left: 100%;
-    margin-left: 6px;
-}
-#page2 .rank,
-#page4 .records {
+#page2 .rank {
     padding-left: 22px;
     padding-right: 22px;
-}
-
-#page4 .record {
-    width: 280px;
-    margin-bottom: 10px;
-    border-radius: 10px;
 }
 
 @media screen and (max-height: 586px) {
@@ -338,20 +287,6 @@ body, .centerer {
 
 .banner-board-helper {
     justify-content: center;
-}
-
-@media screen and (min-width: 519px) {
-    #page2 .record {
-        margin-left: 50px;
-        margin-right: 50px;
-    }
-}
-
-@media screen and (min-width: 359px) {
-    #page2 .record {
-        margin-left: 25px;
-        margin-right: 25px;
-    }
 }
 
 .game_main .aligner {
@@ -489,24 +424,6 @@ body, .centerer {
         width: calc(370px);
         height: 704px;
     }
-
-    .modal-ingame {
-        background-size: 600px;
-    }
-}
-
-@media screen and (min-width: 710px) and (min-height: 898px) {
-
-    .modal-ingame {
-        background-size: 600px;
-    }
-}
-
-@media screen and (min-width: 795px) and (min-height: 1043px) {
-
-    .modal-ingame {
-        background-size: 600px;
-    }
 }
 
 @media screen and (max-height: 410px) {
@@ -524,14 +441,6 @@ body, .centerer {
         margin: 20px;
         position: relative;
     }
-
-    #page4 .record {
-        width: 180px;
-    }
-
-    #avataricon {
-        width: 50px;
-    }
 }
 
 @media screen and (min-width: 350px) and (min-height: 150px) {
@@ -542,14 +451,6 @@ body, .centerer {
         margin: 20px;
         position: relative;
     }
-
-    #page4 .record {
-        width: 280px;
-    }
-
-    #avataricon {
-        width: 60px;
-    }
 }
 
 @media screen and (min-width: 460px) and (min-height: 200px) {
@@ -557,14 +458,6 @@ body, .centerer {
         width: 290px;
         border-radius: 35px;
         position: relative;
-    }
-
-    #page4 .record {
-        width: 280px;
-    }
-
-    #avataricon {
-        width: 80px;
     }
 }
 

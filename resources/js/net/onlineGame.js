@@ -1,26 +1,21 @@
+import { isAddress } from "ethers";
 import { createClient, transportStreamr } from "./streamrTransport.js";
 import { createLobby, LOBBY_PARTITION } from "./lobby.js";
-import { createQueue, saltFromBlock } from "./arena.js";
 import { channelsFor, PROTOCOL_V } from "./constants.js";
-import { createEncounter, COMMIT_WAIT_MS } from "./handshake.js";
+import { createEncounter } from "./handshake.js";
 import { createSession } from "./session.js";
 import { localSigner, stillTheSigner } from "./keys.js";
 import { delegationLocale } from "./delegation.js";
-import { index, sidesFromSeed, CATEGORY, END_REASON, invitePartition, inviteProof } from "./messages.js";
+import { signature } from "./signatures.js";
+import { index, sidesFromSeed, END_REASON, invitePartition, inviteProof, TYPES_BUSY } from "./messages.js";
 import {
-    chainRead, withClock, seatOf, seatsOf, hasThePass,
+    chainRead, withClock, seatOf,
     calldataMove, calldataResignation, calldataClosing,
-    awaitBumping, STATUS, CHAIN_REVEAL_S, fundsFinished, clockFarOff, clockInconsistent, nodeWords, headStalled,
+    awaitBumping, STATUS, SEED_BLOCKS, fundsFinished, clockFarOff, clockInconsistent, nodeWords, headStalled,
     headOffset, behindHead,
-    durationOutOfRange,
+    durationOutOfRange, mementoOf,
 } from "./chain.js";
 import { sameAddress } from "../game/wallet.js";
-import {
-    rememberAgreement, forgetAgreement, createSentinel, forfeitDue, seedGoesBack, seedKind,
-    NOT_STARTED, SUSPENDED_HEARTBEAT_MS, SUSPENDED_REPEAT_MS, STARTUP_ATTEMPTS,
-} from "./pending.js";
-
-export { SUSPENDED_HEARTBEAT_MS, SUSPENDED_REPEAT_MS, STARTUP_ATTEMPTS };
 import { GRACE_SECONDS, PENALTY_SECONDS } from "../game/timer.js";
 import { getBoardPossibleMoves } from "../engine/minimax.js";
 
@@ -28,21 +23,18 @@ const LOG_REPEAT_MS = 2000;
 const RESYNC_HEARTBEAT_MS = 3000;
 const RESYNC_ATTEMPTS = 10;
 const FORK_DEPTH = 32;
-// My last entry goes again every LOG_REPEAT_MS until the opponent answers with an entry of its
-// own, at most for the turn it opens.
 export const REPEAT_LAST_ATTEMPTS = 8;
 
 export const CHAIN_HEARTBEAT_MS = 2000;
-// The other endpoint is read for the head once at watch() and then every PROBE_HEAD_MS.
+export const OPENING_HEARTBEAT_MS = 500;
 export const PROBE_HEAD_MS = 60_000;
-export const STARTUP_WAIT_MS = 90_000;
 export const MOVE_WAIT_MS = 20_000;
 export const RESIGNATION_ATTEMPTS = 3;
-const WITHOUT_SEAT = "Seat not opened.";
-const WITHOUT_PASS = "You need a pass to play On-chain.";
+const ZERO_SEED = "0x" + "0".repeat(64);
 const WITHOUT_CHAIN = "Wallets play on-chain only: this build has no contract.";
-const ARENA_PER_WALLET = "Guest players can not play Arena mode.";
 const KEY_ELSEWHERE = "The session key changed in another tab.";
+const SEAT_ELSEWHERE = "This wallet plays with another session key.";
+const UNSEEDED = "Nobody moved in time: the game is closed and the stakes go back.";
 
 export function plyLegal({ board, repetitions, turn }, p) {
     if (p.skipped) return p.from === 63 && p.a === 63 && p.color === turn;
@@ -54,23 +46,21 @@ export function plyLegal({ board, repetitions, turn }, p) {
 export const CONFIRM_WAIT_MS = 2500;
 
 export function createMatchOnline({
-    onList = () => {}, onQueue = () => {}, onSearch = () => {}, onHandshake = () => {},
+    onList = () => {}, onHandshake = () => {},
     onMatch = () => {}, onMove = () => {}, onDeadline = () => {}, onOutcome = () => {},
-    onSynced = () => {}, onError = () => {}, onChain = () => {}, onStarted = () => {},
+    onSynced = () => {}, onError = () => {}, onChain = () => {}, onStarted = () => {}, onPairing = () => {},
     onHeld = () => {}, onLagging = () => {},
     onRebuild = (replay) => replay(),
-    category = CATEGORY.PRIVATE, beforeSigning = null, openSeat = null,
-    chain = null, reads = chain?.reads ?? null, givenTransport = null,
-    heartbeatChainMs = CHAIN_HEARTBEAT_MS, waitingStartupMs = STARTUP_WAIT_MS, waitingMoveMs = MOVE_WAIT_MS, confirmWaitMs = CONFIRM_WAIT_MS,
-    heartbeatSuspendedMs = SUSPENDED_HEARTBEAT_MS, repeatSuspendedMs = SUSPENDED_REPEAT_MS,
-    revelationS = CHAIN_REVEAL_S, now = Date.now, seed = null,
+    category, beforeSigning = null, openSeat = null,
+    chain = null, givenTransport = null,
+    heartbeatChainMs = CHAIN_HEARTBEAT_MS, heartbeatOpeningMs = OPENING_HEARTBEAT_MS, waitingMoveMs = MOVE_WAIT_MS, confirmWaitMs = CONFIRM_WAIT_MS,
+    now = Date.now, seed = null,
     repeatLastMs = LOG_REPEAT_MS, resyncHeartbeatMs = RESYNC_HEARTBEAT_MS, resyncAttempts = RESYNC_ATTEMPTS,
 } = {}) {
     let client = null, transport = null, lobby = null, encounter = null, session = null;
-    // The encounter of the started game, until my ready stops repeating.
     let lingering = null;
-    let queue = null, expectedChallenger = null, awaitMatched = null;
-    let entered = null, agreementToForget = null;
+    let entered = null;
+    let seatWatching = null, checkingSeat = false;
     let codeInvite = null;
     let unsubscribe = null;
     let outcomeMy = null, outcomeIts = null;
@@ -92,20 +82,16 @@ export function createMatchOnline({
     let toRebuild = false;
     let logExpected = false;
     let logRequestedFrom = 0;
-    // The resync in progress: whether an entry of the opponent arrived, applied or held.
     let heardInRound = false, logAnswered = false, itsRest = 0;
     let repeating = null;
     let laggingAt = -1;
     let reading = false;
-    // The block times seen, against the device clock: the node behind the head is found here.
     let headsSeen = [];
     let probedAt = -Infinity, probing = null;
     let finishedUponChain = false;
-    let startupInProgress = null;
-    // After close() the startup leaves the agreement to the sentinel of app.js.
     let closed = false;
-    // A verdict shown is final: the channel no longer moves the board.
     let concluded = false;
+    let busyFor = null;
 
     function switchOn() {
         if (client) return;
@@ -116,7 +102,6 @@ export function createMatchOnline({
             client = createClient(me.key);
             transport = transportStreamr(client, { streamId: channels.P[0].streamId });
         }
-        if (chain) patrol();
     }
 
     function note(ply) {
@@ -124,7 +109,6 @@ export function createMatchOnline({
         turnSince = now();
     }
 
-    // The opponent's entry on the channel is its answer: my last one stops going again.
     function heardFromIt() {
         clearInterval(repeating);
         repeating = null;
@@ -189,9 +173,6 @@ export function createMatchOnline({
         heartbeat = null;
     }
 
-    // Silent: the round of requests ended without one entry of the opponent, applied or held;
-    // answered, it sent at least a log. itsRest: what its own clock still gives it on the turn
-    // my log request found it on, in ms.
     function resyncDone() {
         haltHeartbeat();
         logExpected = false;
@@ -220,7 +201,6 @@ export function createMatchOnline({
         askLog(from, { immediately });
     }
 
-    // Its log stops under my entries: they went again, and the page reopens its clock once per entry.
     function lagging(itsSeq) {
         const missing = session.entriesFrom(itsSeq + 1).filter((b) => session.signedByMe(b)).slice(-FORK_DEPTH);
         if (!missing.length || laggingAt === session.seq) return;
@@ -243,7 +223,6 @@ export function createMatchOnline({
         let entries = newOnes;
         const yielding = !!session.entryAt(seq) && session.deadlineOverMine(first);
         if (session.entryAt(seq)) {
-            // A move and a Timeout on the same seq: the Timeout wins, on both sides.
             const mine = session.myDeadlineUnder(first);
             if (mine) {
                 resyncDone();
@@ -254,10 +233,8 @@ export function createMatchOnline({
         } else {
             entries = newOnes.filter((b) => b.data.seq > session.seq);
             if (!entries.length) return resyncDone();
-            // An answer to an older request, after a rebuild went back: ask again from here.
             if (entries[0].data.seq > session.seq + 1) return stepBack(session.seq + 1) || resyncFailed("gap");
         }
-        // Giving way, the first Timeout is the turn I lost: it is ripe.
         const rest = yielding ? unripe(entries.slice(1)) : -1;
         const cut = !yielding ? unripe(entries) : rest >= 0 ? rest + 1 : -1;
         const held = cut >= 0 ? entries[cut] : null;
@@ -277,10 +254,6 @@ export function createMatchOnline({
         if (held) holdBack(held, more);
     }
 
-    // The index of the first Timeout of my turn that my clock does not allow yet, or -1. Only the
-    // first entry can skip a turn I have lived: a later one skips a turn I have not seen begin.
-    // With the turn start unknown (just resumed) only the last entry waits, on the turn clock, and
-    // my skipped turns since the cache was written are at most one plus one per penalized turn.
     function unripe(entries) {
         const itsDeadline = (b) => b?.type === "timeout" && !session.signedByMe(b);
         if (turnSince === null) {
@@ -309,8 +282,6 @@ export function createMatchOnline({
         lastAnswer = now();
         if (!session || !transport) return;
         if (outcomeMy) transport.publish(session.partition, outcomeMy).catch(onError);
-        // The log says what my own clock still gives me on my turn: the other waits that long
-        // before declaring it skipped.
         const local = stateCurrent?.();
         const rest = local?.turn === session.myColor && local.deadline > now() ? local.deadline - now() : 0;
         transport.publish(session.partition, {
@@ -370,7 +341,6 @@ export function createMatchOnline({
         return !(deadline > 0) || now() >= deadline - GRACE_SECONDS * 1000;
     }
 
-    // Its Timeout on my turn wins over any move I make meanwhile: my hand stays closed until it applies.
     function holdBack(envelope, more = false) {
         leaveRetained();
         heardInRound = true;
@@ -393,16 +363,6 @@ export function createMatchOnline({
         waitingRetained = null;
         if (retained) onHeld(false);
         retained = null;
-    }
-
-    let seatHaveRead = null;
-    async function verifySession(wallet, session) {
-        const rightNow = Date.now();
-        if (!seatHaveRead || !sameAddress(seatHaveRead.wallet, wallet) || rightNow - seatHaveRead.t >= heartbeatChainMs) {
-            seatHaveRead = { wallet, t: rightNow, promise: seatOf(chain.reads, wallet, chain.address) };
-        }
-        const seat = await seatHaveRead.promise;
-        return !!seat?.session && sameAddress(seat.session, session);
     }
 
     function reconcile(g) {
@@ -451,15 +411,12 @@ export function createMatchOnline({
     async function readChain() {
         if (!session || !chain || reading) return;
         reading = true;
-        const { gameId } = session;
         try {
-            // The first read waits for the probe of the other endpoint, so that a node behind is found at once.
             await probing;
             const haveRead = await chainRead(chain.reads, session.gameId, chain.address);
             if (!session || !haveRead) return;
             if (headStalled(chain.reads, haveRead.timeBlock, now())) { chain.reads.discard?.(); return; }
             if (behindHead(headsSeen, haveRead.timeBlock, now())) { chain.reads.discard?.(); return; }
-            // With the session alive the game has started: NO is a node behind.
             if (haveRead.match.status === STATUS.NO) { chain.reads.discard?.(); return; }
             if (clockFarOff(haveRead.timeBlock, now())) { chain.reads.discard?.(); return; }
             if (String(haveRead.match.seed).toLowerCase() !== String(seedCurrent).toLowerCase()) { chain.reads.discard?.(); return; }
@@ -476,11 +433,7 @@ export function createMatchOnline({
                     block: running ? { seq: g.seq, turn: g.turn, lastAt: g.lastAt, duration: clock.duration, timeBlock, deadline: deadlineInLocale(haveRead) } : null,
                 });
                 onSynced();
-                // The page caches the game after this read: the next one forgets the agreement.
-                agreementToForget = gameId;
             } else {
-                if (agreementToForget === gameId) forgetAgreement(gameId);
-                agreementToForget = null;
                 reconcile(g);
                 if (plyLocal.length > g.ply.length && !inFlight.length) await verifyLonger(haveRead);
                 if (!session) return;
@@ -489,24 +442,28 @@ export function createMatchOnline({
             onChain({
                 type: "state", seq: g.seq, lastAt: g.lastAt, turn: g.turn, status: g.status, deadline: deadlineInLocale(haveRead),
                 duration: clock.duration, timeBlock, penalized: penalized(g),
-                stake: BigInt(g.escrowWhite) + BigInt(g.escrowBlack),
                 escrows: { white: BigInt(g.escrowWhite), black: BigInt(g.escrowBlack) },
                 aligned,
             });
             if (g.status === STATUS.FINISHED && !finishedUponChain) {
                 finishedUponChain = true;
                 haltWatching();
-                onChain({ type: "end", winner: g.winner, endReason: g.endReason, payout: g.payout, sides: session.sides });
+                const { gameId, sides } = session;
+                const won = !!g.winner && !/^0x0{40}$/i.test(g.winner);
+                const token = won ? await mementoOf(chain.reads, gameId) : null;
+                onChain({
+                    type: "end", winner: g.winner, endReason: g.endReason, sides,
+                    escrows: { white: BigInt(g.escrowWhite), black: BigInt(g.escrowBlack) },
+                    minted: token ? token.mintedAt > 0 : null,
+                });
             }
         } finally {
             reading = false;
         }
     }
 
-    // An endpoint on an older block cannot contradict the head: it counts as absent.
     const older = (other, head) => other.timeBlock < head.timeBlock;
 
-    // A confirming endpoint that does not answer in time counts as absent.
     function confirmation(reads) {
         let timer;
         const late = new Promise((r) => { timer = setTimeout(() => r(null), confirmWaitMs); });
@@ -515,7 +472,6 @@ export function createMatchOnline({
             .finally(() => clearTimeout(timer));
     }
 
-    // Another endpoint's head, so that an active one behind it is found.
     function probeHead() {
         probedAt = now();
         const another = chain.reads.elsewhere?.();
@@ -538,7 +494,6 @@ export function createMatchOnline({
     const sameHead = (x, y) => x.match.seq === y.match.seq && x.match.board === y.match.board
         && x.clock.skips === y.clock.skips && x.clock.turn === y.clock.turn;
 
-    // In disagreement with elsewhere(), the active endpoint is believed only if another one agrees.
     async function anotherShows(test) {
         const readers = chain.reads.others?.() ?? [chain.reads.elsewhere?.()].filter(Boolean);
         const reads = await Promise.all(readers.map(confirmation));
@@ -559,7 +514,6 @@ export function createMatchOnline({
         if (pliesOf(other) === pliesOf(head)) toRebuild = true;
     }
 
-    // At the opponent's deadline the active endpoint may be hiding a move.
     async function aheadElsewhere() {
         const another = chain.reads.elsewhere?.();
         if (!another || !session) return;
@@ -574,42 +528,70 @@ export function createMatchOnline({
 
     const deadlineInLocale = (haveRead) => now() + (haveRead.clock.deadline - haveRead.timeBlock) * 1000;
 
-    function sideOf(match) {
-        return sameAddress(match.a, me.wallet) ? 1 : 2;
+    function entryOf(gameId, g) {
+        const white = sameAddress(g.white, me.wallet);
+        return {
+            match: { gameId, a: g.white, b: g.black, category: g.category, t: g.lastAt },
+            seed: g.seed,
+            side: white ? { wallet: g.black, session: g.sessionBlack } : { wallet: g.white, session: g.sessionWhite },
+        };
     }
 
-    const sentinel = chain ? createSentinel({
-        chain, me,
-        heartbeatMs: heartbeatSuspendedMs, repeatMs: repeatSuspendedMs, heartbeatChainMs, revelationS, now,
-        excluded: () => startupInProgress,
-        onStarted: (entry, g) => enterTheStarted(entry, g),
-        onClosed: (entry, g) => { if (!session) sentinel.closed(entry, g); },
-        onError,
-    }) : null;
-
-    function patrol() {
-        sentinel?.start();
-    }
-
-    function haltPatrolWork() {
-        sentinel?.halt();
-    }
-
-    async function enterTheStarted(entry, g) {
-        // The agreement stays in the suspended until the page caches the game: the sentinel
-        // must not announce it a second time while the page is on its way in.
+    function enterTheStarted(entry) {
         if (session || closed || entered === entry.match.gameId) return;
         entered = entry.match.gameId;
-        clearTimeout(awaitMatched);
-        awaitMatched = null;
-        expectedChallenger = null;
-        lobby?.withdraw();
-        encounter?.cancel("game started on the chain", "STARTED");
-        onStarted({ match: entry.match, seed: g.seed, side: entry.side, log: [] });
-        // After the page is in: the leave on the arena channel must not keep it out.
-        const leaving = queue;
-        queue = null;
-        await leaving?.close().catch((e) => console.warn("arena queue not closed", e?.message ?? e));
+        haltSeat();
+        onStarted({ ...entry, log: [] });
+    }
+
+    function watchSeat() {
+        haltSeat();
+        seatWatching = setInterval(checkSeat, heartbeatChainMs);
+        checkSeat();
+    }
+
+    function haltSeat() {
+        if (seatWatching !== null) clearInterval(seatWatching);
+        seatWatching = null;
+    }
+
+    async function checkSeat() {
+        if (checkingSeat || session || closed) return;
+        checkingSeat = true;
+        try {
+            const seat = await seatOf(chain.reads, me.wallet, chain.address);
+            if (!seat?.gameId || !sameAddress(seat.session, me.address)) return;
+            await enterPaired(seat.gameId);
+        } finally {
+            checkingSeat = false;
+        }
+    }
+
+    async function enterPaired(gameId) {
+        for (;;) {
+            if (session || closed) return;
+            const [haveRead, final] = await Promise.all([
+                chainRead(chain.reads, gameId, chain.address),
+                chain.reads.finalized ? chain.reads.finalized().catch(() => null) : null,
+            ]);
+            const g = haveRead?.match;
+            const stale = !!haveRead && (clockFarOff(haveRead.timeBlock, now()) || headStalled(chain.reads, haveRead.timeBlock, now()));
+            if (stale) chain.reads.discard?.();
+            const over = g?.status === STATUS.FINISHED;
+            if (over && !stale && g.seed === ZERO_SEED) return endUnseeded();
+            if ((g?.status === STATUS.IN_PROGRESS || over) && !stale) {
+                if (g.seed === ZERO_SEED && haveRead.blockNumber > g.seedBlock + SEED_BLOCKS) return closeUnseeded(gameId);
+                const opensAt = now() + (g.lastAt - haveRead.timeBlock) * 1000;
+                if (!over) onPairing({ opensAt });
+                const seeded = g.seed !== ZERO_SEED && (!Number.isInteger(final) || final >= g.seedBlock);
+                if (seeded && (over || now() >= opensAt)) {
+                    const mine = sameAddress(g.white, me.wallet) ? g.sessionWhite : g.sessionBlack;
+                    if (!sameAddress(mine, me.address)) return onError(Object.assign(new Error(SEAT_ELSEWHERE), { code: "KEY" }));
+                    return enterTheStarted(entryOf(gameId, g));
+                }
+            }
+            await new Promise((r) => setTimeout(r, heartbeatOpeningMs));
+        }
     }
 
     function watch() {
@@ -627,69 +609,15 @@ export function createMatchOnline({
         watching = null;
     }
 
-    async function startUponChain(outcome) {
-        const entry = { match: outcome.match, side: outcome.side, signatures: outcome.signatures, mySeed: outcome.mySeed, session: me.address };
-        const { gameId } = outcome.match;
-        const my = sideOf(outcome.match);
-        rememberAgreement(entry);
-        startupInProgress = gameId;
-        const beginning = Date.now();
-        let dispatched = false, forfeited = false, reported = false;
-        try {
-            for (;;) {
-                if (closed) return null;
-                const haveRead = await chainRead(chain.reads, gameId, chain.address);
-                if (closed) return null;
-                const stale = !!haveRead && (clockFarOff(haveRead.timeBlock, now()) || headStalled(chain.reads, haveRead.timeBlock, now()));
-                const lying = !stale && haveRead?.match?.status === STATUS.IN_PROGRESS && !seedGoesBack(entry, haveRead.match, me.wallet);
-                if (stale || lying) chain.reads.discard?.();
-                const g = stale || lying ? undefined : haveRead?.match;
-                // Started: the agreement stays until the first read caches the game (readChain).
-                if (g?.status === STATUS.IN_PROGRESS) { rememberAgreement({ ...entry, started: true }); return g; }
-                if (g?.status === STATUS.FINISHED) {
-                    forgetAgreement(gameId);
-                    sentinel.closed(entry, g);
-                    return null;
-                }
-                const myInside = g?.status === STATUS.REVEALING && g.revealed === my;
-                const expired = g?.status === STATUS.REVEALING && haveRead.timeBlock > g.lastAt + revelationS;
-                if (myInside) onChain({ type: "revelation", rest: Math.max(0, g.lastAt + revelationS - haveRead.timeBlock) });
-                const forfeitNow = expired && !forfeited && forfeitDue(g, my, haveRead.timeBlock, revelationS);
-                // Its first seed is answered whatever happened to mine: a seed of mine that fell
-                // must not leave its revelation without an answer, nor the wait give up on it.
-                const itsFirst = g?.status === STATUS.REVEALING && g.revealed !== my;
-                const notStarted = !myInside && !itsFirst && !forfeited && Date.now() > beginning + waitingStartupMs;
-                const givingUp = myInside && Date.now() > beginning + 2 * waitingStartupMs + revelationS * 1000;
-                const started = forfeitNow || notStarted || givingUp ? await sentinel.startedElsewhere(entry) : null;
-                if (closed) return null;
-                if (started) { rememberAgreement({ ...entry, started: true }); return started; }
-                if (forfeitNow) {
-                    forfeited = true;
-                    if (sentinel.claim(gameId, "forfeit")) {
-                        const perPass = myInside && await hasThePass(chain.reads, entry.side.wallet) === false;
-                        await sentinel.dispatchForfeit(entry.match, perPass);
-                    }
-                } else if (notStarted) {
-                    if (!reported) onError(Object.assign(new Error(NOT_STARTED + "."), { code: "STARTUP" }));
-                    return null;
-                } else if (givingUp) {
-                    if (!reported) onError(Object.assign(new Error(NOT_STARTED + "."), { code: "STARTUP" }));
-                    return null;
-                } else if ((!dispatched || itsFirst) && g?.status !== STATUS.FINISHED && !expired && !stale && !lying) {
-                    const kind = seedKind(g, my);
-                    // A claim another tab holds is not a seed of mine: the next round asks again.
-                    const sent = sentinel.claim(gameId, kind) ? await sentinel.dispatchSeed(entry, kind) : null;
-                    if (sent !== null) {
-                        dispatched = sent === true || sent === "refused";
-                        // A seat missing is a wait, not a line: the notice comes at notStarted.
-                        reported ||= sent === false || sent === "refused";
-                    }
-                }
-                await new Promise((r) => setTimeout(r, heartbeatChainMs));
-            }
-        } finally {
-            startupInProgress = null;
-        }
+    function endUnseeded() {
+        haltSeat();
+        onError(Object.assign(new Error(UNSEEDED), { code: "UNSEEDED" }));
+    }
+
+    async function closeUnseeded(gameId) {
+        endUnseeded();
+        await chain.transmitter.send(calldataClosing(gameId)).catch((e) =>
+            onError(Object.assign(new Error("Close not sent: " + nodeWords(e)), { code: "CHAIN" })));
     }
 
     async function transmitResignation() {
@@ -722,8 +650,6 @@ export function createMatchOnline({
         followMove(indexPly, hash);
     }
 
-    // The move goes again at a higher price while it waits (awaitBumping); the version that
-    // never landed, the last one, is the one to forget.
     async function followMove(indexPly, first) {
         const { gone, hash } = await awaitBumping(chain.reads, chain.transmitter, first, waitingMoveMs);
         if (gone === null) {
@@ -743,40 +669,31 @@ export function createMatchOnline({
         return invitePartition(inviter, code);
     }
 
-    async function genuineChallenge(opponent, code = null, partition = partitionLobby(opponent, code)) {
-        let delegation = null;
-        try {
-            if (!stillTheSigner(me)) return onError(Object.assign(new Error(KEY_ELSEWHERE), { code: "KEY" }));
-            if (chain) {
-                if (await hasThePass(chain.reads, me.wallet) === false) return onError(Object.assign(new Error(WITHOUT_PASS), { code: "PASS" }));
-                if (!await api.ensureSeat()) return onError(Object.assign(new Error(WITHOUT_SEAT), { code: "SEAT" }));
-                if (!stillTheSigner(me)) return onError(Object.assign(new Error(KEY_ELSEWHERE), { code: "KEY" }));
-            } else {
-                delegation = delegationLocale();
-                if (!delegation) return onError(Object.assign(new Error(WITHOUT_CHAIN), { code: "NO_CHAIN" }));
-            }
-        } catch (e) {
-            return onError(e);
-        }
-        onHandshake(opponent);
+    function answerBusy(partition, { from, commit }) {
+        if (busyFor === commit || !isAddress(from) || !/^0x[0-9a-f]{64}$/i.test(String(commit))) return;
+        const delegation = delegationLocale();
+        if (!delegation) return;
+        busyFor = commit;
+        const data = { v: PROTOCOL_V, from: me.wallet, to: from, commit };
+        transport.publish(partition, {
+            type: "busy", data, signature: signature(me.key, TYPES_BUSY, data), signedDelegation: delegation,
+        }).catch(() => {});
+    }
+
+    async function genuineChallenge(opponent, code = null, partition = partitionLobby(opponent, code), answering = false) {
+        if (!stillTheSigner(me)) return onError(Object.assign(new Error(KEY_ELSEWHERE), { code: "KEY" }));
+        const delegation = delegationLocale();
+        if (!delegation) return onError(Object.assign(new Error(WITHOUT_CHAIN), { code: "NO_CHAIN" }));
+        if (answering) onHandshake(opponent);
         lobby?.withdraw();
         encounter = createEncounter({
             transport, me, delegation, opponent, category, now, ...(seed ? { seed } : {}),
-            verifySession: chain ? verifySession : null,
-            reveal: !chain,
-            onAgreement: chain ? (entry) => rememberAgreement({ ...entry, session: me.address }) : null,
             invite: code ? inviteProof(code, me.wallet) : null,
             partitionCommit: partition,
+            ...(answering ? {} : { onCommit: () => onHandshake(opponent) }),
         });
         try {
             const outcome = await encounter.start();
-            if (chain) {
-                const g = await startUponChain(outcome);
-                letLinger();
-                if (!g) return null;
-                await enterTheStarted({ match: outcome.match, side: outcome.side }, g);
-                return g;
-            }
             const { sides, myColor } = api.sidesOf(outcome);
             const complete = { ...outcome, sides, myColor };
             onMatch(complete);
@@ -784,9 +701,8 @@ export function createMatchOnline({
         } catch (e) {
             await encounter?.close();
             encounter = null;
-            if (e?.code === "STARTED") return null;
             lobby?.ignore(opponent);
-            if (!queue) onError(e);
+            onError(e);
             return null;
         }
     }
@@ -800,27 +716,6 @@ export function createMatchOnline({
         done.closeAfterReady().finally(() => { if (lingering === done) lingering = null; });
     }
 
-    function reenterQueue() {
-        clearTimeout(awaitMatched);
-        awaitMatched = null;
-        expectedChallenger = null;
-        if (!queue) return;
-        queue.resume();
-        onSearch();
-    }
-
-    async function entriesWithSeat(list) {
-        if (!list.length) return list;
-        const seats = await seatsOf(chain.reads, list.map((x) => x.wallet));
-        if (!seats) return null;
-        return list.filter((x, i) => seats[i]?.session && !seats[i].gameId && sameAddress(seats[i].session, x.from));
-    }
-
-    async function challengeMatched(opponent) {
-        if (await api.challenge(opponent)) return;
-        reenterQueue();
-    }
-
     const api = {
         me,
         get session() { return session; },
@@ -828,19 +723,22 @@ export function createMatchOnline({
         get ply() { return plyLocal.slice(); },
         get uponChain() { return !!chain; },
 
-        checkSuspended() {
-            return sentinel ? sentinel.check() : Promise.resolve(false);
-        },
-
-        async ensureSeat() {
+        async ensureSeat(request) {
             if (!chain) return false;
             const seat = await seatOf(chain.reads, me.wallet, chain.address);
-            if (seat?.session && sameAddress(seat.session, me.address)) return true;
+            const mine = !!seat?.session && sameAddress(seat.session, me.address);
+            if (seat?.gameId) {
+                if (mine) return true;
+                throw Object.assign(new Error(SEAT_ELSEWHERE), { code: "SEAT" });
+            }
+            const fits = mine && !request.host && seat.category === request.category && seat.v === PROTOCOL_V
+                && (!seat.invite || sameAddress(seat.invite, request.invite));
+            if (fits) return true;
             if (!openSeat) return false;
             if (seatInFlight) return seatInFlight;
             seatInFlight = (async () => {
                 if (beforeSigning) await beforeSigning();
-                return await openSeat({ leave: !!seat?.session, session: me.address });
+                return await openSeat({ ...request, leave: !!seat?.session, session: me.address });
             })();
             try {
                 return await seatInFlight;
@@ -849,62 +747,22 @@ export function createMatchOnline({
             }
         },
 
+        watchSeat,
+
         async open({ announcing = true, inviter = me.wallet, code = null } = {}) {
             switchOn();
             lobby = createLobby({ transport, me, onSwitch: onList, partition: partitionLobby(inviter, code) });
             await lobby.open({ announcing });
         },
 
-        async challenge(opponent, { code = null, partition = partitionLobby(opponent, code) } = {}) {
-            if (challengeInProgress) return null;
+        async challenge(opponent, { code = null, partition = partitionLobby(opponent, code), answering = false } = {}) {
+            if (closed || challengeInProgress) return null;
             challengeInProgress = true;
             try {
-                return await genuineChallenge(opponent, code, partition);
+                return await genuineChallenge(opponent, code, partition, answering);
             } finally {
                 challengeInProgress = false;
             }
-        },
-
-        async search() {
-            if (queue) return;
-            if (!channels.A) return onError(Object.assign(new Error(ARENA_PER_WALLET), { code: "ARENA" }));
-            try {
-                if (!stillTheSigner(me)) return onError(Object.assign(new Error(KEY_ELSEWHERE), { code: "KEY" }));
-                if (chain) {
-                    if (await hasThePass(chain.reads, me.wallet) === false) return onError(Object.assign(new Error(WITHOUT_PASS), { code: "PASS" }));
-                    if (!await api.ensureSeat()) return onError(Object.assign(new Error(WITHOUT_SEAT), { code: "SEAT" }));
-                } else if (!delegationLocale()) {
-                    return onError(Object.assign(new Error(WITHOUT_CHAIN), { code: "NO_CHAIN" }));
-                }
-            } catch (e) {
-                return onError(e);
-            }
-            if (queue) return;
-            switchOn();
-            queue = createQueue({
-                transport: givenTransport ?? transportStreamr(client, { streamId: channels.A[0].streamId }),
-                me,
-                salt: reads ? saltFromBlock(reads) : null,
-                verify: chain ? entriesWithSeat : null,
-                onQueue,
-                onPairing: async ({ opponent, initiative }) => {
-                    if (session || encounter || challengeInProgress) return;
-                    queue.withdraw();
-                    expectedChallenger = { wallet: opponent };
-                    if (initiative) return challengeMatched(opponent);
-                    clearTimeout(awaitMatched);
-                    awaitMatched = setTimeout(() => {
-                        if (session || encounter || challengeInProgress) return;
-                        reenterQueue();
-                    }, COMMIT_WAIT_MS);
-                },
-                onExit: (wallet) => {
-                    if (session || !sameAddress(wallet, expectedChallenger?.wallet)) return;
-                    if (encounter) encounter.cancel();
-                    else if (awaitMatched) reenterQueue();
-                },
-            });
-            await queue.open();
         },
 
         async startSession(outcome, state) {
@@ -926,8 +784,6 @@ export function createMatchOnline({
             turnSince = now();
             unsubscribe = await listen();
             letLinger();
-            await queue?.close();
-            queue = null;
             return session;
         },
 
@@ -950,7 +806,6 @@ export function createMatchOnline({
             finishedUponChain = false;
             concluded = false;
             outcomeMy = outcomeIts = null;
-            if (!chain) forgetAgreement(match.gameId);
             session = createSession({ match, seed, me, side, state });
             const restored = chain ? { ok: true } : session.resumeFromLog(log, applyEntry);
             turnSince = null;
@@ -1070,20 +925,13 @@ export function createMatchOnline({
                 }).catch(() => {});
             }
             listeningChallenges = await transport.subscribe(partition, ({ from, envelope }) => {
-                if (session || encounter || challengeInProgress) return;
                 if (sameAddress(from, me.address)) return;
                 if (envelope?.type !== "commit") return;
                 if (!sameAddress(envelope?.data?.to, me.wallet)) return;
-                if (category === CATEGORY.ARENA && !queue) return;
-                if (!queue && codeInvite && envelope.invite !== inviteProof(codeInvite, envelope.data?.from)) return;
-                if (queue && !sameAddress(envelope.data.from, expectedChallenger?.wallet)) return;
-                if (queue) {
-                    clearTimeout(awaitMatched);
-                    awaitMatched = null;
-                    challengeMatched(envelope.data.from);
-                    return;
-                }
-                api.challenge(envelope.data.from, { partition });
+                if (codeInvite && envelope.invite !== inviteProof(codeInvite, envelope.data?.from)) return;
+                if (session) return answerBusy(partition, envelope.data);
+                if (encounter || challengeInProgress) return;
+                api.challenge(envelope.data.from, { partition, answering: true });
             });
         },
 
@@ -1098,15 +946,9 @@ export function createMatchOnline({
             clearTimeout(answerLater);
             answerLater = null;
             haltWatching();
-            haltPatrolWork();
-            clearTimeout(awaitMatched);
-            awaitMatched = null;
-            await queue?.announceExit();
+            haltSeat();
             await listeningChallenges?.();
             listeningChallenges = null;
-            await queue?.close();
-            queue = null;
-            expectedChallenger = null;
             await hooking?.catch(() => {});
             hooking = null;
             await unsubscribe?.();

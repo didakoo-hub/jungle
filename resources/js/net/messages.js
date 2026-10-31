@@ -38,6 +38,15 @@ export const TYPES_COMMIT = {
     ],
 };
 
+export const TYPES_BUSY = {
+    Busy: [
+        { name: "v", type: "uint16" },
+        { name: "from", type: "address" },
+        { name: "to", type: "address" },
+        { name: "commit", type: "bytes32" },
+    ],
+};
+
 export const TYPES_READY = {
     Ready: [
         { name: "gameId", type: "uint256" },
@@ -105,7 +114,7 @@ export const TYPES_DEPRECATION = {
     ],
 };
 
-export const END_REASON = Object.freeze({ PYRAMID: 1, RESIGNED: 2, ABANDONED: 3, WIPEOUT: 4, FORFEITED: 5 });
+export const END_REASON = Object.freeze({ PYRAMID: 1, RESIGNED: 2, ABANDONED: 3, WIPEOUT: 4 });
 
 export const CATEGORY = Object.freeze({ NONE: 0, BOT: 1, ARENA: 2, PRIVATE: 3 });
 

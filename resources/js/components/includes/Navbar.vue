@@ -11,7 +11,7 @@
                         :src="ddd"
                         alt="didakoo"
                     />
-                    <span @click="getLinkBurger()" style='font-size:13px; color:white;' class="version_sign"> Jungle v 1.2</span>
+                    <span @click="getLinkBurger()" style='font-size:13px; color:white;' class="version_sign"> Jungle v {{ version }}</span>
             </div>
 
 
@@ -37,7 +37,6 @@
                 :class="{ 'bar-selected': indicated('profile') }"
                 @click="identityClick()"
             >
-                <img :src="iconaplay1" alt="your profile" />
                 PROFILE
             </div>
             <span
@@ -45,7 +44,6 @@
                 style='font-size:13px; color:white;'
                 class="version_sign"
             >
-                <img :src="ghost" alt="guest" class="icon_identity" />
                 GUEST
             </span>
 
@@ -59,10 +57,9 @@ import store from "../../store/index.js";
 import { isWalletAlias } from "../../game/identity.js";
 import Icon from "./Icon.vue";
 import ddd from "../../../images/extra_objects/ddd.svg";
-import iconaplay1 from "../../../images/extra_objects/iconaplay1.svg";
-import ghost from "../../../images/extra_objects/ghost.svg";
 import { barTargets } from "./bar.js";
 import { onMouseMove } from "./mouse.js";
+import { GAME_VERSION } from "../../net/constants.js";
 
 const ARROWS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 const KEYSTROKES_SELECTION = ["Enter", " ", "Spacebar"];
@@ -85,12 +82,10 @@ export default {
     },
     data() {
         return {
-            currentPlayer: {},
             userAddress: false,
             cursor: "",
             ddd,
-            iconaplay1,
-            ghost,
+            version: GAME_VERSION,
         };
     },
     computed: {
@@ -105,8 +100,8 @@ export default {
         },
         returnFromAvatar() {
             const from = this.$route.query.from;
-            const allowed = ["menu", "ranking", "info"];
-            return allowed.includes(from) ? from : "ranking";
+            const allowed = ["menu", "matches", "info"];
+            return allowed.includes(from) ? from : "matches";
         },
     },
     mounted() {
@@ -186,7 +181,7 @@ export default {
                 return;
             }
             if (this.$route.name === "avatar") {
-                this.$router.push({ path: this.returnFromAvatar });
+                this.$router.push({ name: this.returnFromAvatar });
             } else if (this.$route.name !== "menu") {
                 this.$router.push({ path: "menu" });
             } else {
@@ -232,18 +227,6 @@ export default {
     .avatar_link {
         font-size: 13px;
         color: white;
-        img {
-            display: inline;
-            width: 18px;
-            margin-right: 4px;
-            margin-bottom: 2px;
-        }
-    }
-    img.icon_identity {
-        display: inline;
-        width: 18px;
-        margin-right: 4px;
-        margin-bottom: 2px;
     }
 }
 .pointer {

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
@@ -84,11 +84,13 @@ abstract contract Table is Test {
     RegistroDiProva registro;
 
     string constant CANALE_P = "0x2be52242593369ec5fbaa9e36801ce4dc95cb04c/jungle-didakoo";
-    string constant CANALE_A = "0x2be52242593369ec5fbaa9e36801ce4dc95cb04c/didakoo-jungle-arena";
 
     address constant PROPRIETARIO = 0xf1e51457504edc0321DE4B6bA4403A1464c2B897;
     uint256 constant CHIAVE_D = 0xd1d;
     uint256 constant POSTA = 5 ether;
+    uint16 constant V = 1;
+    uint8 constant ARENA = 2;
+    uint8 constant PRIVATA = 3;
     CollezioneDiProva collezione;
 
     string json;
@@ -122,14 +124,12 @@ abstract contract Table is Test {
                 uint16(1),
                 IStreamRegistry(address(registro)),
                 CANALE_P,
-                CANALE_A,
                 vm.addr(CHIAVE_D)
             ),
             contratto
         );
         game = JungleGame(contratto);
         registro.concedi(CANALE_P, contratto);
-        registro.concedi(CANALE_A, contratto);
         memento = new JungleMemento(game, art, replay, PROPRIETARIO);
         game.setMemento(IJungleMemento(address(memento)));
 
@@ -141,42 +141,22 @@ abstract contract Table is Test {
         nero = vm.parseJsonAddress(json, ".game.black");
         sessioneBianca = bianco == a ? sessionA : sessionB;
         sessioneNera = bianco == a ? sessionB : sessionA;
-        gameId = vm.parseJsonUint(json, ".game.match.gameId");
+        gameId = vm.parseJsonUint(json, ".game.gameId");
         quantiPly = vm.parseJsonBytes(json, ".game.moves").length / 2;
     }
 
-    function accordo() internal view returns (JungleGame.Match memory m) {
-        m.v = uint16(vm.parseJsonUint(json, ".game.match.v"));
-        m.gameId = vm.parseJsonUint(json, ".game.match.gameId");
-        m.a = vm.parseJsonAddress(json, ".game.match.a");
-        m.b = vm.parseJsonAddress(json, ".game.match.b");
-        m.commitA = vm.parseJsonBytes32(json, ".game.match.commitA");
-        m.commitB = vm.parseJsonBytes32(json, ".game.match.commitB");
-        m.category = uint8(vm.parseJsonUint(json, ".game.match.category"));
-        m.repetitionLimit = uint8(vm.parseJsonUint(json, ".game.match.repetitionLimit"));
-        m.turnS = uint8(vm.parseJsonUint(json, ".game.match.turnS"));
-        m.penaltyS = uint8(vm.parseJsonUint(json, ".game.match.penaltyS"));
-        m.graceS = uint8(vm.parseJsonUint(json, ".game.match.graceS"));
-        m.t = uint64(vm.parseJsonUint(json, ".game.match.t"));
+    function seme() internal view returns (bytes32) {
+        return vm.parseJsonBytes32(json, ".game.seed");
     }
 
-    function firmaA() internal view returns (bytes memory) {
-        return vm.parseJsonBytes(json, ".game.signatureA");
+    function invito() internal view returns (address) {
+        return vm.parseJsonAddress(json, ".game.invite.address");
     }
 
-    function firmaB() internal view returns (bytes memory) {
-        return vm.parseJsonBytes(json, ".game.signatureB");
+    function firmaInvito() internal view returns (bytes memory) {
+        return vm.parseJsonBytes(json, ".game.invite.signature");
     }
 
-    function semeA() internal view returns (bytes32) {
-        return vm.parseJsonBytes32(json, ".game.seedA");
-    }
-
-    function semeB() internal view returns (bytes32) {
-        return vm.parseJsonBytes32(json, ".game.seedB");
-    }
-
-    // The seq the client sends: the plies written plus the skips the move will record.
     function atteso() internal view returns (uint32) {
         (,,,, uint8 salti) = game.clockOf(gameId);
         return game.gameOf(gameId).seq + salti;
@@ -194,23 +174,47 @@ abstract contract Table is Test {
         collezione.dai(chi, 1, 1);
     }
 
+    function vendi(address chi) internal {
+        collezione.dai(chi, 1, 0);
+    }
+
     function apri(address wallet, address session) internal {
+        apri(wallet, session, ARENA, address(0));
+    }
+
+    function apri(address wallet, address session, uint8 categoria, address chiave) internal {
         compra(wallet);
+        siedi(wallet, session, categoria, chiave);
+    }
+
+    function siedi(address wallet, address session, uint8 categoria, address chiave) internal {
         vm.deal(wallet, wallet.balance + POSTA);
-        vm.prank(wallet);
-        game.jungledidakooOpen{value: POSTA}(session);
+        vm.prank(wallet, wallet);
+        game.jungledidakooOpen{value: POSTA}(session, categoria, chiave, V);
+    }
+
+    function entra(address ospite, address session, address host, bytes memory firma) internal {
+        compra(ospite);
+        vm.deal(ospite, ospite.balance + POSTA);
+        vm.prank(ospite, ospite);
+        game.jungledidakooJoin{value: POSTA}(host, session, firma, V);
+    }
+
+    function accoppia() internal {
+        apri(a, sessionA);
+        apri(b, sessionB);
+    }
+
+    function semina() internal {
+        JungleGame.Game memory g = game.gameOf(gameId);
+        vm.roll(g.seedBlock + 1);
+        vm.setBlockhash(g.seedBlock, seme());
+        vm.warp(g.lastAt);
     }
 
     function avvia() internal {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        rivela(sessionB, semeB());
-    }
-
-    function rivela(address sessione, bytes32 seme) internal {
-        vm.prank(sessione);
-        game.jungledidakooStart(accordo(), firmaA(), firmaB(), seme);
+        accoppia();
+        semina();
     }
 
     function gioca() internal {

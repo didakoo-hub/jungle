@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {JungleRules} from "./JungleRules.sol";
@@ -21,7 +21,7 @@ contract JungleGame {
 
     uint256 public constant STAKE = 5 ether;
 
-    uint256 public constant FLOAT = 0.6 ether;
+    uint256 public constant FLOAT = 1 ether;
 
     uint64 public constant TURN_SECONDS = 20;
 
@@ -31,20 +31,20 @@ contract JungleGame {
 
     uint8 public constant REPETITION_LIMIT = 6;
 
-    uint64 public constant REVEAL_SECONDS = 30;
+    uint64 public constant START_SECONDS = 5;
 
-    uint64 public constant AGREEMENT_SECONDS = 120;
-
-    uint64 public constant CLOCK_DRIFT_SECONDS = 60;
+    uint256 public constant SEED_BLOCKS = 256;
 
     uint256 public constant REFUND_OVERHEAD = 36_000;
 
     uint256 public constant REFUND_PRIORITY_CAP = 60 gwei;
 
-    uint8 private constant NESSUNA_CASELLA = 63;
+    uint256 public constant PASS_GAS = 300_000;
 
-    uint8 private constant TANA_NERA = 3;
-    uint8 private constant TANA_BIANCA = 59;
+    uint8 private constant NO_SQUARE = 63;
+
+    uint8 private constant BLACK_DEN = 3;
+    uint8 private constant WHITE_DEN = 59;
 
     uint8 public constant ARENA = 2;
     uint8 public constant PRIVATE = 3;
@@ -53,34 +53,19 @@ contract JungleGame {
     uint8 public constant RESIGNED = 2;
     uint8 public constant ABANDONED = 3;
     uint8 public constant WIPEOUT = 4;
-    uint8 public constant FORFEITED = 5;
-
-    uint8 public constant REVEALING = 3;
 
     struct Deprecation {
         uint16 minVersion;
         uint64 notBefore;
     }
 
-    struct Match {
-        uint16 v;
-        uint256 gameId;
-        address a;
-        address b;
-        bytes32 commitA;
-        bytes32 commitB;
-        uint8 category;
-        uint8 repetitionLimit;
-        uint8 turnS;
-        uint8 penaltyS;
-        uint8 graceS;
-        uint64 t;
-    }
-
     struct Seat {
         address session;
         uint128 escrow;
         uint256 gameId;
+        uint8 category;
+        address invite;
+        uint16 v;
     }
 
     struct Game {
@@ -101,10 +86,9 @@ contract JungleGame {
         uint8 category;
         bytes32 seed;
         uint8 status;
-        uint8 revealed;
+        uint64 seedBlock;
         address winner;
         uint8 endReason;
-        uint128 payout;
         bytes moves;
     }
 
@@ -116,7 +100,6 @@ contract JungleGame {
 
     IStreamRegistry public immutable registry;
     string public channelP;
-    string public channelA;
     uint8 private constant PUBLISH = 2;
     uint256 public constant REGISTRY_GAS = 200_000;
 
@@ -126,8 +109,11 @@ contract JungleGame {
     mapping(address wallet => Seat) public seats;
     mapping(uint256 gameId => Game) private games;
 
+    mapping(uint16 v => address wallet) public waiting;
+    uint256 private paired;
+
     mapping(address session => address wallet) public sessionOf;
-    mapping(address session => uint8 count) private usiSessione;
+    mapping(address session => uint8 count) private sessionUses;
 
     mapping(address wallet => uint256 amount) public owed;
 
@@ -139,14 +125,9 @@ contract JungleGame {
     bytes32 private constant DEPRECATION_TYPEHASH =
         keccak256("Deprecation(uint16 minVersion,uint64 notBefore)");
 
-    bytes32 private constant MATCH_TYPEHASH = keccak256(
-        "Match(uint16 v,uint256 gameId,address a,address b,bytes32 commitA,bytes32 commitB,"
-        "uint8 category,uint8 repetitionLimit,uint8 turnS,uint8 penaltyS,uint8 graceS,uint64 t)"
-    );
-
-    event Opened(address indexed wallet, address indexed session);
+    event Opened(address indexed wallet, address indexed session, uint8 category);
     event Left(address indexed wallet);
-    event Revealed(uint256 indexed gameId, address indexed wallet);
+    event Paired(uint256 indexed gameId, address indexed a, address indexed b, uint8 category);
     event Started(uint256 indexed gameId, address indexed white, address indexed black, uint8 category);
     event Moved(uint256 indexed gameId, uint32 seq, uint8 colour, uint8 from, uint8 to);
     event Finished(uint256 indexed gameId, address indexed winner, uint8 endReason);
@@ -155,7 +136,6 @@ contract JungleGame {
 
     error NotDeployer();
     error MementoSet();
-    error NoPass();
     error BadStake();
     error BadSession();
     error SeatOpen();
@@ -163,17 +143,12 @@ contract JungleGame {
     error NoSeat();
     error SeatBusy();
     error VersionTooOld();
-    error BadMatch();
-    error SameCommit();
+    error OtherVersion();
     error BadCategory();
+    error BadInvite();
     error BadSignature();
-    error OutOfWindow();
-    error BadReveal();
-    error AlreadyRevealed();
-    error RevealExpired();
-    error AlreadyStarted();
-    error NotRevealing();
-    error StillRevealing();
+    error SeedNotReady();
+    error SeedExpired();
     error NotRunning();
     error NotAPlayer();
     error NotYourTurn();
@@ -185,13 +160,14 @@ contract JungleGame {
     error Reentered();
     error BadDeprecation();
     error NotYet();
+    error LowGas();
+    error NotOrigin();
 
     constructor(
         IJunglePass pass_,
         uint16 minVersion_,
         IStreamRegistry registry_,
         string memory channelP_,
-        string memory channelA_,
         address deprecator_
     ) {
         pass = pass_;
@@ -199,7 +175,6 @@ contract JungleGame {
         deprecator = deprecator_;
         registry = registry_;
         channelP = channelP_;
-        channelA = channelA_;
         deployer = msg.sender;
         gameDomainSeparator = keccak256(
             abi.encode(DOMAIN_TYPEHASH, keccak256("Jungle"), keccak256("1"), block.chainid, address(this))
@@ -219,20 +194,38 @@ contract JungleGame {
         locked = false;
     }
 
-    function jungledidakooOpen(address session) external payable nonReentrant {
-        if (pass.balanceOf(msg.sender) == 0) revert NoPass();
-        if (msg.value != STAKE) revert BadStake();
-        if (session == address(0) || session == msg.sender) revert BadSession();
-        if (seats[msg.sender].session != address(0)) revert SeatOpen();
+    function jungledidakooOpen(address session, uint8 category, address invite, uint16 v)
+        external
+        payable
+        nonReentrant
+    {
+        if (category == ARENA ? invite != address(0) : category != PRIVATE || invite == address(0)) {
+            revert BadCategory();
+        }
+        _takeSeat(session, category, invite, v);
+        if (category != ARENA) return;
+        address other = waiting[v];
+        if (other == address(0)) {
+            waiting[v] = msg.sender;
+            return;
+        }
+        delete waiting[v];
+        _pair(other, msg.sender, ARENA);
+    }
 
-        uint256 rabbocco = session.balance >= FLOAT ? 0 : FLOAT - session.balance;
-        seats[msg.sender] = Seat(session, uint128(STAKE - rabbocco), 0);
-        emit Opened(msg.sender, session);
-        _prendiSessione(session);
-
-        if (rabbocco == 0) return;
-        (bool andata,) = session.call{value: rabbocco}("");
-        if (!andata) revert PayoutFailed();
+    function jungledidakooJoin(address host, address session, bytes calldata signature, uint16 v)
+        external
+        payable
+        nonReentrant
+    {
+        Seat storage hostSeat = seats[host];
+        address inviteKey = hostSeat.invite;
+        if (inviteKey == address(0) || hostSeat.gameId != 0 || host == msg.sender) revert BadInvite();
+        if (hostSeat.v != v) revert OtherVersion();
+        if (_recover(inviteHash(host, msg.sender), signature) != inviteKey) revert BadSignature();
+        hostSeat.invite = address(0);
+        _takeSeat(session, PRIVATE, address(0), v);
+        _pair(host, msg.sender, PRIVATE);
     }
 
     function jungledidakooLeave() external nonReentrant {
@@ -241,186 +234,133 @@ contract JungleGame {
         if (seat.gameId != 0) revert SeatBusy();
 
         delete seats[msg.sender];
+        if (waiting[seat.v] == msg.sender) delete waiting[seat.v];
         emit Left(msg.sender);
-        _lasciaSessione(seat.session);
+        _releaseSession(seat.session);
         _pay(msg.sender, seat.escrow);
     }
 
-    function jungledidakooStart(
-        Match calldata m,
-        bytes calldata signatureA,
-        bytes calldata signatureB,
-        bytes32 seed
-    ) external nonReentrant {
-        uint256 gas0 = gasleft();
+    function _takeSeat(address session, uint8 category, address invite, uint16 v) private {
+        if (msg.sender != tx.origin) revert NotOrigin();
+        if (v < minVersion || v == 0) revert VersionTooOld();
+        if (msg.value != STAKE) revert BadStake();
+        if (session == address(0) || session == msg.sender) revert BadSession();
+        if (seats[msg.sender].session != address(0)) revert SeatOpen();
 
-        if (m.category != ARENA && m.category != PRIVATE) revert BadCategory();
-        if (m.repetitionLimit != REPETITION_LIMIT || uint160(m.a) >= uint160(m.b)) revert BadMatch();
-        if (m.commitA == m.commitB) revert SameCommit();
-        if (m.gameId != gameIdOf(m.a, m.b, m.commitA, m.commitB, m.t)) revert BadMatch();
-        Game storage g = games[m.gameId];
-        if (g.status != 0 && g.status != REVEALING) revert AlreadyStarted();
-        if (g.status == 0 && (m.v < minVersion || m.v == 0)) revert VersionTooOld();
+        uint256 topUp = session.balance >= FLOAT ? 0 : FLOAT - session.balance;
+        seats[msg.sender] = Seat(session, uint128(STAKE - topUp), 0, category, invite, v);
+        emit Opened(msg.sender, session, category);
+        _takeSession(session);
 
-        (Seat memory seatA, Seat memory seatB) = _posti(m);
-        uint8 lato = msg.sender == seatA.session ? 1 : 2;
-        if (g.revealed == lato) revert AlreadyRevealed();
-        if (keccak256(abi.encodePacked(seed)) != (lato == 1 ? m.commitA : m.commitB)) revert BadReveal();
-        if (pass.balanceOf(lato == 1 ? m.a : m.b) == 0) revert NoPass();
-
-        if (g.status == 0) {
-            if (m.t > block.timestamp + CLOCK_DRIFT_SECONDS || block.timestamp > m.t + AGREEMENT_SECONDS) {
-                revert OutOfWindow();
-            }
-            _firme(m, signatureA, signatureB, seatA, seatB);
-            seats[m.a].gameId = m.gameId;
-            seats[m.b].gameId = m.gameId;
-            g.status = REVEALING;
-            g.revealed = lato;
-            g.seed = seed;
-            g.category = m.category;
-            g.lastAt = uint64(block.timestamp);
-            emit Revealed(m.gameId, lato == 1 ? m.a : m.b);
-            _rimborsaPosto(lato == 1 ? m.a : m.b, gas0);
-            return;
-        }
-
-        if (seatA.gameId != m.gameId || seatB.gameId != m.gameId) revert SeatBusy();
-        if (m.category != g.category) revert BadMatch();
-        if (block.timestamp > g.lastAt + REVEAL_SECONDS) revert RevealExpired();
-        delete seats[m.a];
-        delete seats[m.b];
-        _avvia(m, g.seed ^ seed, seatA, seatB);
-        _rimborsa(g, msg.sender == g.sessionWhite ? 1 : 0, gas0);
+        if (topUp == 0) return;
+        (bool sent,) = session.call{value: topUp}("");
+        if (!sent) revert PayoutFailed();
     }
 
-    function jungledidakooForfeit(Match calldata m) external nonReentrant {
-        if (m.gameId != gameIdOf(m.a, m.b, m.commitA, m.commitB, m.t)) revert BadMatch();
-        Game storage g = games[m.gameId];
-        if (g.status != REVEALING) revert NotRevealing();
-        if (block.timestamp <= g.lastAt + REVEAL_SECONDS) revert StillRevealing();
-
-        Seat memory seatA = seats[m.a];
-        Seat memory seatB = seats[m.b];
-        delete seats[m.a];
-        delete seats[m.b];
-        address chi = g.revealed == 1 ? m.a : m.b;
-        g.status = 2;
-        g.endReason = FORFEITED;
-        g.winner = chi;
-        emit Finished(m.gameId, chi, FORFEITED);
-        _lasciaSessione(seatA.session);
-        _lasciaSessione(seatB.session);
-        _pay(chi, uint256(seatA.escrow) + seatB.escrow);
-    }
-
-    function _posti(Match calldata m) private view returns (Seat memory seatA, Seat memory seatB) {
-        seatA = seats[m.a];
-        seatB = seats[m.b];
-        if (seatA.session == address(0) || seatB.session == address(0)) revert NoSeat();
-        if (seatA.gameId != 0 && seatA.gameId != m.gameId) revert SeatBusy();
-        if (seatB.gameId != 0 && seatB.gameId != m.gameId) revert SeatBusy();
-        if (msg.sender != seatA.session && msg.sender != seatB.session) revert NotAPlayer();
-    }
-
-    function _firme(
-        Match calldata m,
-        bytes calldata signatureA,
-        bytes calldata signatureB,
-        Seat memory seatA,
-        Seat memory seatB
-    ) private view {
-        bytes32 signed = matchHash(m);
-        if (_recover(signed, signatureA) != seatA.session) revert BadSignature();
-        if (_recover(signed, signatureB) != seatB.session) revert BadSignature();
-    }
-
-    function _avvia(Match calldata m, bytes32 seed, Seat memory seatA, Seat memory seatB)
-        private
-        returns (Game storage g)
-    {
-        bool aBianco = JungleSeed.primoBianco(seed);
-        g = games[m.gameId];
-        g.white = aBianco ? m.a : m.b;
-        g.black = aBianco ? m.b : m.a;
-        g.sessionWhite = aBianco ? seatA.session : seatB.session;
-        g.sessionBlack = aBianco ? seatB.session : seatA.session;
-        g.escrowWhite = aBianco ? seatA.escrow : seatB.escrow;
-        g.escrowBlack = aBianco ? seatB.escrow : seatA.escrow;
-        g.board = JungleSeed.scacchieraIniziale(seed);
+    function _pair(address x, address y, uint8 category) private {
+        (address a, address b) = uint160(x) < uint160(y) ? (x, y) : (y, x);
+        uint256 gameId = uint256(keccak256(abi.encode(block.chainid, address(this), ++paired)));
+        Seat storage seatA = seats[a];
+        Seat storage seatB = seats[b];
+        Game storage g = games[gameId];
+        g.white = a;
+        g.black = b;
+        g.sessionWhite = seatA.session;
+        g.sessionBlack = seatB.session;
+        g.escrowWhite = seatA.escrow;
+        g.escrowBlack = seatB.escrow;
+        (seatA.escrow, seatB.escrow) = (0, 0);
+        (seatA.gameId, seatB.gameId) = (gameId, gameId);
         g.turn = 1;
-        g.lastAt = uint64(block.timestamp);
-        g.repetitionLimit = m.repetitionLimit;
-        g.colors = JungleSeed.colori(seed);
-        g.category = m.category;
-        g.seed = seed;
+        g.lastAt = uint64(block.timestamp) + START_SECONDS;
+        g.seedBlock = uint64(block.number) + 1;
+        g.repetitionLimit = REPETITION_LIMIT;
+        g.category = category;
         g.status = 1;
-        emit Started(m.gameId, g.white, g.black, m.category);
+        emit Paired(gameId, a, b, category);
+    }
+
+    function _seedGame(Game storage g, uint256 gameId) private {
+        if (g.seed != 0) return;
+        if (block.number <= g.seedBlock) revert SeedNotReady();
+        bytes32 seed = blockhash(g.seedBlock);
+        if (seed == 0) revert SeedExpired();
+        if (!JungleSeed.whiteFirst(seed)) {
+            (g.white, g.black) = (g.black, g.white);
+            (g.sessionWhite, g.sessionBlack) = (g.sessionBlack, g.sessionWhite);
+            (g.escrowWhite, g.escrowBlack) = (g.escrowBlack, g.escrowWhite);
+        }
+        g.board = JungleSeed.initialBoard(seed);
+        g.colors = JungleSeed.colors(seed);
+        g.seed = seed;
+        emit Started(gameId, g.white, g.black, g.category);
     }
 
     function jungledidakooMove(uint256 gameId, uint32 seq, uint8 from, uint8 to) external nonReentrant {
         uint256 gas0 = gasleft();
         Game storage g = games[gameId];
-        uint8 mio = _lato(g);
+        if (g.status != 1) revert NotRunning();
+        _seedGame(g, gameId);
+        uint8 side = _sideOf(g);
 
         if (block.timestamp > g.lastAt + IDLE_SECONDS) revert Idle();
-        _recuperaSalti(g, gameId);
-        if (g.turn != mio) revert NotYourTurn();
-        // The ply the move was chosen for: a late transaction lands on another one.
+        _catchUpSkips(g, gameId);
+        if (g.turn != side) revert NotYourTurn();
         if (g.seq != seq) revert StaleMove();
-        g.penalized &= ~uint8(1 << mio);
+        g.penalized &= ~uint8(1 << side);
 
-        uint8[63] memory cella = JungleRules.apri(g.board);
-        if (!JungleRules.legale(cella, g.repetitions, mio, g.repetitionLimit, from, to)) revert BadMove();
+        uint8[63] memory cells = JungleRules.unpack(g.board);
+        if (!JungleRules.legal(cells, g.repetitions, side, g.repetitionLimit, from, to)) revert BadMove();
 
         g.repetitions =
-            JungleRules.segna(g.repetitions, mio, JungleRules.animale(cella, from), g.repetitionLimit);
-        JungleRules.applica(cella, from, to);
-        g.board = JungleRules.chiudi(cella);
+            JungleRules.mark(g.repetitions, side, JungleRules.animalAt(cells, from), g.repetitionLimit);
+        JungleRules.play(cells, from, to);
+        g.board = JungleRules.pack(cells);
         g.seq += 1;
-        g.turn = 1 - mio;
+        g.turn = 1 - side;
         g.lastAt = uint64(block.timestamp);
-        _scrivi(g, mio, false, from, to);
-        emit Moved(gameId, g.seq, mio, from, to);
+        _record(g, side, false, from, to);
+        emit Moved(gameId, g.seq, side, from, to);
 
-        if (to == (mio == 1 ? TANA_NERA : TANA_BIANCA)) {
-            _fine(g, gameId, mio, PYRAMID);
-        } else if (_spazzato(cella, 1 - mio)) {
-            _fine(g, gameId, mio, WIPEOUT);
+        if (to == (side == 1 ? BLACK_DEN : WHITE_DEN)) {
+            _finish(g, gameId, side, PYRAMID);
+        } else if (_wipedOut(cells, 1 - side)) {
+            _finish(g, gameId, side, WIPEOUT);
+        } else {
+            _refund(g, side, gas0);
         }
-
-        _rimborsa(g, mio, gas0);
     }
 
     function jungledidakooResign(uint256 gameId) external nonReentrant {
-        uint256 gas0 = gasleft();
         Game storage g = games[gameId];
-        uint8 mio = _lato(g);
-        _fine(g, gameId, 1 - mio, RESIGNED);
-        _rimborsa(g, mio, gas0);
+        if (g.status != 1) revert NotRunning();
+        _seedGame(g, gameId);
+        uint8 side = _sideOf(g);
+        _finish(g, gameId, 1 - side, RESIGNED);
     }
 
     function jungledidakooClose(uint256 gameId) external nonReentrant {
         Game storage g = games[gameId];
         if (g.status != 1) revert NotRunning();
-        if (block.timestamp <= g.lastAt + IDLE_SECONDS) revert StillPlaying();
+        bool unseeded = g.seed == 0 && block.number > g.seedBlock + SEED_BLOCKS;
+        if (!unseeded && block.timestamp <= g.lastAt + IDLE_SECONDS) revert StillPlaying();
 
         g.status = 2;
         g.endReason = ABANDONED;
-        (uint256 bianco, uint256 nero) = (g.escrowWhite, g.escrowBlack);
-        (g.escrowWhite, g.escrowBlack) = (0, 0);
+        (uint256 whiteEscrow, uint256 blackEscrow) = (g.escrowWhite, g.escrowBlack);
         emit Closed(gameId);
-        _lasciaSessione(g.sessionWhite);
-        _lasciaSessione(g.sessionBlack);
-        _pay(g.white, bianco);
-        _pay(g.black, nero);
+        _freeSeats(g);
+        _releaseSession(g.sessionWhite);
+        _releaseSession(g.sessionBlack);
+        _pay(g.white, whiteEscrow);
+        _pay(g.black, blackEscrow);
     }
 
     function jungledidakooSunset(Deprecation calldata d, bytes calldata signature) external {
         if (d.minVersion <= minVersion) revert BadDeprecation();
         if (block.timestamp < d.notBefore) revert NotYet();
-        address chi = _recover(deprecationHash(d), signature);
-        if (chi == address(0) || chi != deprecator) revert BadSignature();
+        address who = _recover(deprecationHash(d), signature);
+        if (who == address(0) || who != deprecator) revert BadSignature();
 
         minVersion = d.minVersion;
         emit Sunset(d.minVersion, d.notBefore);
@@ -429,21 +369,23 @@ contract JungleGame {
     function jungledidakooWithdraw() external nonReentrant {
         uint256 amount = owed[msg.sender];
         owed[msg.sender] = 0;
-        (bool andata,) = msg.sender.call{value: amount}("");
-        if (!andata) revert PayoutFailed();
+        (bool sent,) = msg.sender.call{value: amount}("");
+        if (!sent) revert PayoutFailed();
     }
 
-    function gameOf(uint256 gameId) external view returns (Game memory) {
-        return games[gameId];
-    }
-
-    function deadlineOf(uint256 gameId) external view returns (uint64) {
-        (uint64 fine,) = turnoDi(gameId);
-        return fine;
-    }
-
-    function turnoDi(uint256 gameId) public view returns (uint64 fine, uint8 turno) {
-        (turno,,, fine,) = clockOf(gameId);
+    function gameOf(uint256 gameId) external view returns (Game memory g) {
+        g = games[gameId];
+        if (g.status != 1 || g.seed != 0 || block.number <= g.seedBlock) return g;
+        bytes32 seed = blockhash(g.seedBlock);
+        if (seed == 0) return g;
+        if (!JungleSeed.whiteFirst(seed)) {
+            (g.white, g.black) = (g.black, g.white);
+            (g.sessionWhite, g.sessionBlack) = (g.sessionBlack, g.sessionWhite);
+            (g.escrowWhite, g.escrowBlack) = (g.escrowBlack, g.escrowWhite);
+        }
+        g.board = JungleSeed.initialBoard(seed);
+        g.colors = JungleSeed.colors(seed);
+        g.seed = seed;
     }
 
     function clockOf(uint256 gameId)
@@ -455,24 +397,20 @@ contract JungleGame {
         turn = g.turn;
         penalized = g.penalized;
         startedAt = g.lastAt;
-        deadline = startedAt + _durataDi(penalized, turn);
+        deadline = startedAt + _turnLengthOf(penalized, turn);
         if (g.status != 1) return (turn, penalized, startedAt, deadline, 0);
-        uint64 tetto = g.lastAt + IDLE_SECONDS;
-        while (block.timestamp > deadline && deadline <= tetto) {
+        uint64 cap = g.lastAt + IDLE_SECONDS;
+        while (block.timestamp > deadline && deadline <= cap) {
             startedAt = deadline;
             penalized |= uint8(1 << turn);
             turn = 1 - turn;
             skips += 1;
-            deadline = startedAt + _durataDi(penalized, turn);
+            deadline = startedAt + _turnLengthOf(penalized, turn);
         }
     }
 
-    function gameIdOf(address a, address b, bytes32 commitA, bytes32 commitB, uint64 t)
-        public
-        view
-        returns (uint256)
-    {
-        return uint256(keccak256(abi.encode(block.chainid, address(this), a, b, commitA, commitB, t)));
+    function inviteHash(address host, address guest) public view returns (bytes32) {
+        return keccak256(abi.encode(block.chainid, address(this), host, guest));
     }
 
     function deprecationHash(Deprecation calldata d) public view returns (bytes32) {
@@ -485,143 +423,131 @@ contract JungleGame {
         );
     }
 
-    function matchHash(Match calldata m) public view returns (bytes32) {
-        return keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                gameDomainSeparator,
-                keccak256(
-                    bytes.concat(
-                        abi.encode(MATCH_TYPEHASH, m.v, m.gameId, m.a, m.b, m.commitA, m.commitB),
-                        abi.encode(m.category, m.repetitionLimit, m.turnS, m.penaltyS, m.graceS, m.t)
-                    )
-                )
-            )
-        );
-    }
-
-    function _lato(Game storage g) private view returns (uint8) {
+    function _sideOf(Game storage g) private view returns (uint8) {
         if (g.status != 1) revert NotRunning();
         if (msg.sender == g.sessionWhite) return 1;
         if (msg.sender == g.sessionBlack) return 0;
         revert NotAPlayer();
     }
 
-    function _durata(Game storage g) private view returns (uint64) {
-        return _durataDi(g.penalized, g.turn);
+    function _turnLength(Game storage g) private view returns (uint64) {
+        return _turnLengthOf(g.penalized, g.turn);
     }
 
-    function _durataDi(uint8 penalizzati, uint8 turno) private pure returns (uint64) {
-        return (penalizzati >> turno) & 1 == 1 ? PENALTY_SECONDS : TURN_SECONDS;
+    function _turnLengthOf(uint8 penalized, uint8 turn) private pure returns (uint64) {
+        return (penalized >> turn) & 1 == 1 ? PENALTY_SECONDS : TURN_SECONDS;
     }
 
-    function _recuperaSalti(Game storage g, uint256 gameId) private {
+    function _catchUpSkips(Game storage g, uint256 gameId) private {
         uint64 t = g.lastAt;
-        while (block.timestamp > t + _durata(g)) {
-            t += _durata(g);
-            _salta(g, gameId);
+        while (block.timestamp > t + _turnLength(g)) {
+            t += _turnLength(g);
+            _skip(g, gameId);
         }
     }
 
-    function _salta(Game storage g, uint256 gameId) private {
-        uint8 chi = g.turn;
-        g.repetitions = JungleRules.azzera(g.repetitions, chi);
-        g.penalized |= uint8(1 << chi);
+    function _skip(Game storage g, uint256 gameId) private {
+        uint8 who = g.turn;
+        g.repetitions = JungleRules.clear(g.repetitions, who);
+        g.penalized |= uint8(1 << who);
         g.seq += 1;
-        g.turn = 1 - chi;
-        _scrivi(g, chi, true, NESSUNA_CASELLA, NESSUNA_CASELLA);
-        emit Moved(gameId, g.seq, chi, NESSUNA_CASELLA, NESSUNA_CASELLA);
+        g.turn = 1 - who;
+        _record(g, who, true, NO_SQUARE, NO_SQUARE);
+        emit Moved(gameId, g.seq, who, NO_SQUARE, NO_SQUARE);
     }
 
-    function _scrivi(Game storage g, uint8 colore, bool saltato, uint8 from, uint8 to) private {
-        uint16 v = (uint16(colore) << 15) | (saltato ? uint16(1) << 14 : 0) | (uint16(from) << 6) | to;
+    function _record(Game storage g, uint8 colour, bool skipped, uint8 from, uint8 to) private {
+        uint16 v = (uint16(colour) << 15) | (skipped ? uint16(1) << 14 : 0) | (uint16(from) << 6) | to;
         g.moves.push(bytes1(uint8(v >> 8)));
         g.moves.push(bytes1(uint8(v)));
     }
 
-    function _spazzato(uint8[63] memory cella, uint8 colore) private pure returns (bool) {
+    function _wipedOut(uint8[63] memory cells, uint8 colour) private pure returns (bool) {
         for (uint8 i = 0; i < 63; i++) {
-            if (cella[i] != 0 && JungleRules.lato(cella, i) == colore) return false;
+            if (cells[i] != 0 && JungleRules.sideAt(cells, i) == colour) return false;
         }
         return true;
     }
 
-    function _fine(Game storage g, uint256 gameId, uint8 vincitore, uint8 motivo) private {
+    function _finish(Game storage g, uint256 gameId, uint8 winnerSide, uint8 reason) private {
         g.status = 2;
-        g.endReason = motivo;
-        g.winner = vincitore == 1 ? g.white : g.black;
-        uint256 totale = uint256(g.escrowWhite) + g.escrowBlack;
-        (g.escrowWhite, g.escrowBlack) = (0, 0);
-        g.payout = uint128(totale);
-        emit Finished(gameId, g.winner, motivo);
+        g.endReason = reason;
+        g.winner = winnerSide == 1 ? g.white : g.black;
+        (uint256 whiteEscrow, uint256 blackEscrow) = (g.escrowWhite, g.escrowBlack);
+        emit Finished(gameId, g.winner, reason);
 
-        _lasciaSessione(g.sessionWhite);
-        _lasciaSessione(g.sessionBlack);
-        _pay(g.winner, totale);
-        if (address(memento) != address(0)) memento.mint(gameId);
+        bool mints = address(memento) != address(0) && _holdsPass(g.winner);
+        _freeSeats(g);
+        _releaseSession(g.sessionWhite);
+        _releaseSession(g.sessionBlack);
+        _pay(g.white, whiteEscrow);
+        _pay(g.black, blackEscrow);
+        if (mints) memento.mint(gameId);
     }
 
-    function _prendiSessione(address session) private {
-        address chi = sessionOf[session];
-        if (chi != address(0) && chi != msg.sender) revert SessionTaken();
-        if (chi == address(0)) sessionOf[session] = msg.sender;
-        uint8 n = usiSessione[session];
-        if (n == 0) _apriCanali(session);
-        usiSessione[session] = n + 1;
+    function _holdsPass(address wallet) private view returns (bool) {
+        if (gasleft() < PASS_GAS + PASS_GAS / 63 + 5_000) revert LowGas();
+        try pass.balanceOf{gas: PASS_GAS}(wallet) returns (uint256 n) {
+            return n > 0;
+        } catch {
+            return false;
+        }
     }
 
-    function _lasciaSessione(address session) private {
-        uint8 n = usiSessione[session];
+    function _freeSeats(Game storage g) private {
+        delete seats[g.white];
+        delete seats[g.black];
+    }
+
+    function _takeSession(address session) private {
+        address who = sessionOf[session];
+        if (who != address(0) && who != msg.sender) revert SessionTaken();
+        if (who == address(0)) sessionOf[session] = msg.sender;
+        uint8 n = sessionUses[session];
+        if (n == 0) _openChannel(session);
+        sessionUses[session] = n + 1;
+    }
+
+    function _releaseSession(address session) private {
+        uint8 n = sessionUses[session];
         if (n > 1) {
-            usiSessione[session] = n - 1;
+            sessionUses[session] = n - 1;
             return;
         }
-        delete usiSessione[session];
-        _chiudiCanali(session);
+        delete sessionUses[session];
+        _closeChannel(session);
     }
 
-    function _apriCanali(address session) private {
+    function _openChannel(address session) private {
         if (address(registry).code.length == 0) return;
         try registry.grantPermission{gas: REGISTRY_GAS}(channelP, session, PUBLISH) {} catch {}
-        try registry.grantPermission{gas: REGISTRY_GAS}(channelA, session, PUBLISH) {} catch {}
     }
 
-    function _chiudiCanali(address session) private {
+    function _closeChannel(address session) private {
         if (address(registry).code.length == 0) return;
         try registry.revokePermission{gas: REGISTRY_GAS}(channelP, session, PUBLISH) {} catch {}
-        try registry.revokePermission{gas: REGISTRY_GAS}(channelA, session, PUBLISH) {} catch {}
     }
 
-    function _rimborsa(Game storage g, uint8 lato, uint256 gas0) private {
-        uint256 costo = (gas0 - gasleft() + REFUND_OVERHEAD) * _prezzoRimborsato();
-        uint128 resto = lato == 1 ? g.escrowWhite : g.escrowBlack;
-        if (resto == 0) return;
-        uint128 rimborso = costo < resto ? uint128(costo) : resto;
-        if (lato == 1) g.escrowWhite = resto - rimborso;
-        else g.escrowBlack = resto - rimborso;
-        (bool andata,) = msg.sender.call{value: rimborso}("");
-        if (!andata) revert PayoutFailed();
+    function _refund(Game storage g, uint8 side, uint256 gas0) private {
+        uint256 cost = (gas0 - gasleft() + REFUND_OVERHEAD) * _refundPrice();
+        uint128 left = side == 1 ? g.escrowWhite : g.escrowBlack;
+        if (left == 0) return;
+        uint128 refund = cost < left ? uint128(cost) : left;
+        if (side == 1) g.escrowWhite = left - refund;
+        else g.escrowBlack = left - refund;
+        (bool sent,) = msg.sender.call{value: refund}("");
+        if (!sent) revert PayoutFailed();
     }
 
-    function _rimborsaPosto(address wallet, uint256 gas0) private {
-        uint256 costo = (gas0 - gasleft() + REFUND_OVERHEAD) * _prezzoRimborsato();
-        uint128 resto = seats[wallet].escrow;
-        if (resto == 0) return;
-        uint128 rimborso = costo < resto ? uint128(costo) : resto;
-        seats[wallet].escrow = resto - rimborso;
-        (bool andata,) = msg.sender.call{value: rimborso}("");
-        if (!andata) revert PayoutFailed();
-    }
-
-    function _prezzoRimborsato() private view returns (uint256) {
-        uint256 tetto = block.basefee + REFUND_PRIORITY_CAP;
-        return tx.gasprice < tetto ? tx.gasprice : tetto;
+    function _refundPrice() private view returns (uint256) {
+        uint256 cap = block.basefee + REFUND_PRIORITY_CAP;
+        return tx.gasprice < cap ? tx.gasprice : cap;
     }
 
     function _pay(address to, uint256 amount) private {
         if (amount == 0) return;
-        (bool andata,) = to.call{value: amount, gas: 30_000}("");
-        if (!andata) owed[to] += amount;
+        (bool sent,) = to.call{value: amount, gas: 30_000}("");
+        if (!sent) owed[to] += amount;
     }
 
     function _recover(bytes32 hash, bytes calldata signature) private pure returns (address) {

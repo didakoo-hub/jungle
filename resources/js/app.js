@@ -5,15 +5,16 @@ import VueRouter from "vue-router";
 import store from "./store/index.js";
 import router from "./router/index.js";
 import App from "./App.vue";
-import { currentIdentity, getWalletAddress, saveWalletAddress } from "./game/identity.js";
-import { clearSession, leaveWallet, walletGone, setFloatNetwork, resumeFloatReturns, leaveWarning, keyOwner, adoptedAtBoot } from "./net/logout.js";
+import { currentIdentity, getWalletAddress, saveWalletAddress, settleAtBoot } from "./game/identity.js";
+import { clearSession, leaveWallet, walletGone, setFloatNetwork, resumeFloatReturns, settleFloat, leaveWarning, keyOwner, adoptedAtBoot } from "./net/logout.js";
 import {
-    onAccountsChanged, onPopup, popupOpen, readAuthorizedAccounts, resumePopup, sameAddress, walletLocked,
+    onAccountsChanged, onPopup, popupElsewhere, popupOfAnotherTab, popupOpen, readAuthorizedAccounts, resumePopup, sameAddress, walletLocked,
+    watchPopupElsewhere,
 } from "./game/wallet.js";
 import { clientOff, downloadAnnouncement, uponShutdown } from "./net/deprecation.js";
 import { createSentinel } from "./net/pending.js";
 import { keySessionSaved, addressOf, onKeySession } from "./net/keys.js";
-import { createTransmitter, matchAbsent } from "./net/chain.js";
+import { matchAbsent } from "./net/chain.js";
 import { POLYGON_NETWORK } from "./net/rpc.js";
 import { MATCH_ADDRESS, RPC_POLYGON } from "./net/constants.js";
 import { CATEGORY } from "./net/messages.js";
@@ -23,39 +24,72 @@ import { storageBlocked } from "./game/storage.js";
 import WalletWait from "./components/pages/WalletWait.vue";
 import { switchOffLoader, switchOffFreeLoader } from "./components/includes/loader.js";
 import { installControllers } from "./components/includes/controllers.js";
+import { enterTheHost } from "./farcaster/boot.js";
 
 Vue.use(VueRouter);
 
 installControllers();
 
-if (storageBlocked()) {
-    new Vue({ el: "#app", render: (h) => h(NoStorage) });
-    switchOffLoader();
-} else if (clientOff()) {
-    new Vue({ el: "#app", render: (h) => h(OldVersion) });
-    switchOffLoader();
-} else {
-    store.commit("SET_POPUP", popupOpen());
-    onPopup((opened) => store.commit("SET_POPUP", opened));
-    awaitTheWallet().then(start).then(switchOffFreeLoader);
+enterTheHost().then((free) => { if (free) boot(); });
+
+function boot() {
+    if (storageBlocked()) {
+        new Vue({ el: "#app", render: (h) => h(NoStorage) });
+        switchOffLoader();
+    } else if (clientOff()) {
+        new Vue({ el: "#app", render: (h) => h(OldVersion) });
+        switchOffLoader();
+    } else {
+        store.commit("SET_POPUP", popupOpen());
+        onPopup((opened) => {
+            store.commit("SET_POPUP", opened);
+            store.commit("SET_POPUP_ELSEWHERE", popupOfAnotherTab());
+        });
+        awaitTheWallet().then(start).then(switchOffFreeLoader);
+    }
 }
 
 async function awaitTheWallet() {
     if (!popupOpen()) return;
-    const waiting = new Vue({ el: "#app", store, render: (h) => h(WalletWait) });
+    const elsewhere = await popupElsewhere();
+    const waiting = new Vue({ el: "#app", store, render: (h) => h(WalletWait, { props: { elsewhere } }) });
     switchOffLoader();
-    const resumed = await resumePopup();
+    const resumed = elsewhere ? await popupClosedElsewhere() : await resumePopup();
     const seat = document.createElement("div");
     seat.id = "app";
     waiting.$el.parentNode.replaceChild(seat, waiting.$el);
     waiting.$destroy();
+    if (elsewhere) return;
     if (resumed?.refused && resumed.type !== "login") location.hash = "#/jungle";
     if (resumed?.type !== "login" || !resumed.account) return;
     const saved = saveWalletAddress(resumed.account);
     if (saved) store.commit("SET_ALIAS", saved);
 }
 
+function popupClosedElsewhere() {
+    return new Promise((resolve) => {
+        const done = () => {
+            off();
+            resolve();
+        };
+        const off = onPopup((opened) => {
+            if (!opened) done();
+        });
+        watchPopupElsewhere();
+        if (!popupOpen()) done();
+    });
+}
+
 function start() {
+    const saved = getWalletAddress();
+    const check = readAuthorizedAccounts().then((accounts) => {
+        if (accounts === null) return;
+        const adopted = adoptedAtBoot(accounts);
+        if (adopted && saveWalletAddress(adopted)) return store.commit("SET_ALIAS", adopted);
+        return alignIdentity(accounts);
+    });
+    if (saved) settleAtBoot(check);
+
     const app = new Vue({
         el: '#app',
         store,
@@ -68,6 +102,7 @@ function start() {
     if (RPC_POLYGON.length) {
         setFloatNetwork(POLYGON_NETWORK);
         resumeFloatReturns();
+        settleFloat();
     }
 
     let sentinel = null;
@@ -79,16 +114,15 @@ function start() {
         if (!wallet || !key || matchAbsent() || !RPC_POLYGON.length) return;
         const me = { type: "wallet", wallet, key, address: addressOf(key) };
         sentinel = createSentinel({
-            chain: { reads: POLYGON_NETWORK, transmitter: createTransmitter(POLYGON_NETWORK, key), address: MATCH_ADDRESS },
+            reads: POLYGON_NETWORK,
+            address: MATCH_ADDRESS,
             me,
-            // On #/online the page patrols, unless it is closed on the account gate.
             active: () => router.currentRoute.path !== "/online" || !sameAddress(wallet, getWalletAddress()),
-            onStarted: (entry) => {
+            onPaired: (record) => {
                 if (router.currentRoute.path === "/online") return;
-                const query = entry.match.category === CATEGORY.ARENA ? { mode: "arena" } : {};
+                const query = record.category === CATEGORY.ARENA ? { mode: "arena" } : {};
                 router.push({ path: "/online", query });
             },
-            onError: (e) => console.warn("pending agreement", e?.message ?? e),
         });
         sentinel.start();
     }
@@ -96,7 +130,6 @@ function start() {
     store.watch((s) => s.alias, alignSentinel);
     onKeySession(alignSentinel);
 
-    // Another tab changed the wallet or the key.
     window.addEventListener("storage", (e) => {
         if (e.key !== null && e.key !== "walletAddress" && e.key !== "sessionKey") return;
         store.commit("SET_ALIAS", currentIdentity());
@@ -110,12 +143,6 @@ function start() {
         leaveWallet({ force: true });
         store.commit("SET_ALIAS", currentIdentity());
     }
-
-    readAuthorizedAccounts().then((accounts) => {
-        const adopted = adoptedAtBoot(accounts);
-        if (adopted && saveWalletAddress(adopted)) return store.commit("SET_ALIAS", adopted);
-        return alignIdentity(accounts);
-    });
 
     onAccountsChanged((accounts) => {
         const saved = getWalletAddress();

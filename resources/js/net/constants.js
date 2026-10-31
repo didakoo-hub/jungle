@@ -1,13 +1,11 @@
-export const PROTOCOL_V = 3;
+export const PROTOCOL_V = 6;
+
+export const GAME_VERSION = "1.6";
 
 export const CHAIN_ID = 137;
 
 export const P_CHANNELS = [
     { streamId: "0x2be52242593369ec5fbaa9e36801ce4dc95cb04c/jungle-didakoo", partitions: 99 },
-];
-
-export const A_CHANNELS = [
-    { streamId: "0x2be52242593369ec5fbaa9e36801ce4dc95cb04c/didakoo-jungle-arena", partitions: 99 },
 ];
 
 export const P_GUEST_CHANNELS = [
@@ -17,7 +15,7 @@ export const P_GUEST_CHANNELS = [
 export const STREAMR_REGISTRY = "0x0D483E10612F327FC11965Fc82E90dC19b141641";
 
 export function channelsFor(type) {
-    return type === "guest" ? { P: P_GUEST_CHANNELS, A: null } : { P: P_CHANNELS, A: A_CHANNELS };
+    return type === "guest" ? { P: P_GUEST_CHANNELS } : { P: P_CHANNELS };
 }
 
 export const TRIAL_STREAM = false;
@@ -25,13 +23,13 @@ export const TRIAL_STREAM = false;
 
 export const STREAMR_NETWORK = "polygon";
 
-export const MATCH_ADDRESS = "0x7a879c26Fbd8A6d29fC5cb3e01EEC6848d6aBf98";
+export const MATCH_ADDRESS = "0x08671180Bb07e90de3Ba135908d41368F730aF7d";
 
-export const BLOCK_MATCH = 95505069;
+export const BLOCK_MATCH = 96416075;
 
-export const MEMENTO_ADDRESS = "0x4F45ACcEC6f7e6C9cCC4de8D08c395f1Eb58Fd1c";
+export const MEMENTO_ADDRESS = "0x1F1318ADEC325Ad3338d928738636929B393d60c";
 
-export const PASS_ADDRESS = "0x8049461bE5C04e91957D5c5Fb1Bd6829edc08396";
+export const PASS_ADDRESS = "0x347D3ae3039b40fd6247d328821387391e113aa1";
 
 export const RPC_POLYGON = Object.freeze([
     "https://polygon.gateway.tenderly.co",
@@ -59,7 +57,7 @@ export const DEPRECATION_URLS = Object.freeze([
 export function placeholdersToReplace() {
     return TRIAL_STREAM
         || STREAMR_NETWORK !== "polygon"
-        || [...P_CHANNELS, ...A_CHANNELS, ...P_GUEST_CHANNELS].some((c) =>
+        || [...P_CHANNELS, ...P_GUEST_CHANNELS].some((c) =>
             c.streamId.startsWith("0x0000000000000000000000000000000000000000"))
         || D_ADDRESS === "0x0000000000000000000000000000000000000000"
         || MATCH_ADDRESS === "0x0000000000000000000000000000000000000000"

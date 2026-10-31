@@ -5,7 +5,7 @@ import { sameAddress } from "../game/wallet.js";
 import { randomSeed, xorSeeds } from "../game/random.js";
 import { LOBBY_PARTITION } from "./lobby.js";
 import {
-    TYPES_COMMIT, TYPES_MATCH, TYPES_REVEAL, TYPES_READY,
+    TYPES_COMMIT, TYPES_MATCH, TYPES_REVEAL, TYPES_READY, TYPES_BUSY,
     commitOf, commitGoesBack, newMatch, acceptableAgreement, sort, sidesFromSeed,
     partitionOf,
 } from "./messages.js";
@@ -27,12 +27,11 @@ const ARRIVED_CAP = 32;
 const seconds = (ms) => Math.floor(ms / 1000);
 
 export function createEncounter({
-    transport, me, delegation = null, opponent, category,
-    verifySession = null, onAgreement = null, reveal = true, invite = null,
+    transport, me, delegation = null, opponent, category, invite = null,
     partitionCommit = LOBBY_PARTITION,
     seed = randomSeed(), now = Date.now, v = PROTOCOL_V,
     waitingMs = WAIT_MS, waitingCommitMs = Math.min(waitingMs, COMMIT_WAIT_MS), repeatMs = REPEAT_MS,
-    driftS = COMMIT_DRIFT_S,
+    driftS = COMMIT_DRIFT_S, onCommit = () => {},
 }) {
     const arrived = [];
     const senders = new WeakMap();
@@ -44,7 +43,6 @@ export function createEncounter({
     let finished = false;
     let readyRepeating = false;
     let afterReady = null;
-    const inWaiting = new Set();
 
     const key = (from) => String(from ?? "").toLowerCase();
     const exclude = (from) => { if (from) excludedAll.add(key(from)); };
@@ -89,7 +87,6 @@ export function createEncounter({
         return new Promise((ok, ko) => {
             const deadline = setTimeout(() => {
                 wakeMe.delete(look);
-                inWaiting.delete(letGo);
                 ko(Object.assign(new Error(`no ${what} within ${totalMs / 1000}s`), { code: "WAITING", step: what }));
             }, Math.max(0, restMs));
             const look = () => {
@@ -97,16 +94,9 @@ export function createEncounter({
                 if (!found) return;
                 clearTimeout(deadline);
                 wakeMe.delete(look);
-                inWaiting.delete(letGo);
                 ok(found);
             };
-            const letGo = (error) => {
-                clearTimeout(deadline);
-                wakeMe.delete(look);
-                ko(Object.assign(error, { step: what }));
-            };
             wakeMe.add(look);
-            inWaiting.add(letGo);
         });
     }
 
@@ -130,13 +120,6 @@ export function createEncounter({
     };
 
     return {
-        cancel(reason = "opponent left", code = "EXIT") {
-            for (const letGo of [...inWaiting]) {
-                inWaiting.delete(letGo);
-                letGo(Object.assign(new Error(reason), { code }));
-            }
-        },
-
         async close() {
             finished = true;
             if (heartbeat !== null) { clearInterval(heartbeat); heartbeat = null; }
@@ -145,7 +128,6 @@ export function createEncounter({
             for (const f of closings.splice(0)) await f?.();
         },
 
-        // My ready keeps going for its QUEUE_READY rounds: the other may have lost it.
         async closeAfterReady() {
             if (readyRepeating && !finished) await new Promise((r) => { afterReady = r; });
             await this.close();
@@ -154,26 +136,22 @@ export function createEncounter({
         async start() {
             closings.push(await transport.subscribe(partitionCommit, ({ from, envelope }) => {
                 if (sameAddress(from, me.address)) return;
-                if (envelope?.type === "commit" && sameAddress(envelope?.data?.to, me.wallet)) enqueue(envelope, from);
+                if (!["commit", "busy"].includes(envelope?.type) || !sameAddress(envelope?.data?.to, me.wallet)) return;
+                enqueue(envelope, from);
             }));
 
             const myCommit = {
                 v, from: me.wallet, to: opponent,
                 commit: commitOf(seed), t: seconds(now()),
             };
-            const commitSide = (b) => {
+            const commitSide = (b, types = TYPES_COMMIT) => {
                 const from = senders.get(b);
-                if (verifySession) {
-                    const session = signerOf(TYPES_COMMIT, b.data, b.signature);
-                    if (!session || !sameAddress(session, from)) return null;
-                    return { wallet: opponent, session: session, delegation: null };
-                }
                 const sd = b.signedDelegation;
                 if (!sd) return null;
                 if (!sameAddress(sd?.delegation?.session, from)) return null;
                 if (!sameAddress(sd?.delegation?.wallet, opponent)) return null;
                 if (!verifyDelegation(sd.delegation, sd?.signature, now()).ok) return null;
-                if (!fromHim(TYPES_COMMIT, b, sd.delegation.session)) return null;
+                if (!fromHim(types, b, sd.delegation.session)) return null;
                 return { wallet: opponent, session: sd.delegation.session, delegation: sd };
             };
             const sidesOf = new WeakMap();
@@ -184,25 +162,24 @@ export function createEncounter({
                 else exclude(senders.get(b));
                 return !!l;
             });
+            const worthBusy = judged((b) => b.type === "busy" && sameAddress(b.data?.from, opponent) && b.data?.v === v
+                && String(b.data?.commit).toLowerCase() === String(myCommit.commit).toLowerCase()
+                && !!commitSide(b, TYPES_BUSY));
             transmit(partitionCommit, {
                 type: "commit", ...my(TYPES_COMMIT, myCommit),
                 ...(delegation ? { signedDelegation: delegation } : {}),
                 ...(invite ? { invite: invite } : {}),
             });
-            const end = now() + waitingCommitMs;
-            let its, side;
-            for (;;) {
-                its = await awaitFor((b) => !excluded(b) && worthCommit(b), "commit", end - now(), waitingCommitMs);
-                side = sidesOf.get(its);
-                if (side.delegation || await verifySession(opponent, side.session)) break;
-                exclude(senders.get(its));
-            }
+            const its = await awaitFor((b) => !excluded(b) && (worthCommit(b) || worthBusy(b)), "commit", waitingCommitMs, waitingCommitMs);
+            if (its.type === "busy") throw Object.assign(new Error("the opponent is in another game"), { code: "BUSY", step: "commit" });
+            const side = sidesOf.get(its);
             if (String(its.data.commit).toLowerCase() === String(myCommit.commit).toLowerCase()) {
                 throw Object.assign(new Error("their commit is a copy of mine"), { code: "COMMIT", step: "commit" });
             }
             if (!Number.isInteger(its.data.t) || Math.abs(its.data.t - seconds(now())) > driftS) {
                 throw Object.assign(new Error("their commit clock is off"), { code: "COMMIT", step: "commit" });
             }
+            onCommit();
 
             const [first] = sort(me.wallet, opponent);
             const agreement = newMatch({
@@ -223,10 +200,6 @@ export function createEncounter({
             const amA = sameAddress(agreement.a, me.wallet);
             const mineEnvelope = my(TYPES_MATCH, agreement, MATCH_DOMAIN);
             const mineSignature = mineEnvelope.signature;
-            onAgreement?.({
-                match: agreement, side, mySeed: seed,
-                signatures: amA ? { a: mineSignature, b: null } : { a: null, b: mineSignature },
-            });
             const itsAgreement = await swap(
                 partition,
                 { type: "match", ...mineEnvelope },
@@ -240,23 +213,19 @@ export function createEncounter({
             const signatures = amA
                 ? { a: mineSignature, b: itsAgreement.signature }
                 : { a: itsAgreement.signature, b: mineSignature };
-            onAgreement?.({ match: agreement, side, signatures, mySeed: seed });
 
-            let seedShared = null, seeds = null;
-            if (reveal) {
-                const myReveal = { gameId: agreement.gameId, seed: seed, t: seconds(now()) };
-                const itsReveal = await swap(
-                    partition,
-                    { type: "reveal", ...my(TYPES_REVEAL, myReveal) },
-                    judged((b) => b.type === "reveal" && fromHim(TYPES_REVEAL, b, side.session)),
-                    "reveal",
-                );
-                if (!commitGoesBack(itsReveal.data.seed, its.data.commit)) {
-                    throw Object.assign(new Error("the revealed seed does not match the commit"), { code: "COMMIT" });
-                }
-                seedShared = xorSeeds(seed, itsReveal.data.seed);
-                seeds = amA ? { a: seed, b: itsReveal.data.seed } : { a: itsReveal.data.seed, b: seed };
+            const myReveal = { gameId: agreement.gameId, seed: seed, t: seconds(now()) };
+            const itsReveal = await swap(
+                partition,
+                { type: "reveal", ...my(TYPES_REVEAL, myReveal) },
+                judged((b) => b.type === "reveal" && fromHim(TYPES_REVEAL, b, side.session)),
+                "reveal",
+            );
+            if (!commitGoesBack(itsReveal.data.seed, its.data.commit)) {
+                throw Object.assign(new Error("the revealed seed does not match the commit"), { code: "COMMIT" });
             }
+            const seedShared = xorSeeds(seed, itsReveal.data.seed);
+            const seeds = amA ? { a: seed, b: itsReveal.data.seed } : { a: itsReveal.data.seed, b: seed };
 
             const myReady = { gameId: agreement.gameId, t: seconds(now()) };
             await swap(
@@ -286,7 +255,7 @@ export function createEncounter({
                 mySeed: seed,
                 signatures,
                 side,
-                sides: seedShared ? sidesFromSeed(seedShared, agreement.a, agreement.b) : null,
+                sides: sidesFromSeed(seedShared, agreement.a, agreement.b),
                 partition,
             };
         },

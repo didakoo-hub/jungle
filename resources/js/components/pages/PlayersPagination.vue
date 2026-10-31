@@ -126,7 +126,9 @@ export default {
     border: none !important;
 }
 .page-link-active {
-    color: #a225f0 !important;
+    color: white !important;
+    text-decoration: underline;
+    text-underline-offset: 4px;
     border: none !important;
 }
 .page-link--selected {

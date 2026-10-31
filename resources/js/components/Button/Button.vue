@@ -4,7 +4,7 @@
         class="btn-button"
         :class="[variant ? `btn-button--${variant}` : '']"
     >
-        <div class="btn-content">
+        <div class="btn-content" :style="styleContent">
             <span v-if="title" class="btn-label">{{ title }}</span>
             <img v-if="image" class="btn-image" alt="" :src="image" :style="styleImage">
             <Icon v-if="icon" class="btn-icon" :name="icon" :style="styleIcon"/>
@@ -32,11 +32,17 @@
           iconSize: {
               type: Number
           },
+          gap: {
+              type: Number
+          },
           title: {
               type: String
           }
       },
       computed: {
+          styleContent() {
+              return this.gap != null ? { gap: `${this.gap}px` } : null;
+          },
           styleImage() {
               return this.imageWidth ? { maxWidth: `${this.imageWidth}px` } : null;
           },

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {Table, RegistroIngordo} from "./Table.sol";
@@ -6,7 +6,39 @@ import {JungleGame, IJunglePass, IStreamRegistry} from "../src/JungleGame.sol";
 import {JungleRules} from "../src/JungleRules.sol";
 import {JungleMemento} from "../src/JungleMemento.sol";
 
+contract Rifiuta {
+    receive() external payable {
+        revert();
+    }
+}
+
 contract JungleGameTest is Table {
+
+    function test_il_resto_rifiutato_si_ritira_dopo() public {
+        avvia();
+        vm.etch(bianco, type(Rifiuta).runtimeCode);
+        vm.prank(sessioneNera);
+        game.jungledidakooResign(gameId);
+        uint256 dovuto = game.owed(bianco);
+        assertGt(dovuto, 0, "il resto che il wallet rifiuta resta nel contratto");
+
+        vm.prank(bianco);
+        vm.expectRevert(JungleGame.PayoutFailed.selector);
+        game.jungledidakooWithdraw();
+        assertEq(game.owed(bianco), dovuto, "il ritiro fallito non lo perde");
+
+        vm.etch(bianco, "");
+        uint256 prima = bianco.balance;
+        vm.prank(bianco);
+        game.jungledidakooWithdraw();
+        assertEq(bianco.balance, prima + dovuto, "il ritiro lo restituisce");
+        assertEq(game.owed(bianco), 0);
+        assertEq(game.owed(nero), 0, "l'altro l'ha avuto subito");
+
+        vm.prank(bianco);
+        game.jungledidakooWithdraw();
+        assertEq(bianco.balance, prima + dovuto, "una volta sola");
+    }
 
     function test_la_partita_del_bundle_si_rigioca() public {
         avvia();
@@ -31,8 +63,7 @@ contract JungleGameTest is Table {
     function test_il_posto_apre_i_due_canali_alla_sessione() public {
         assertFalse(registro.canPublish(CANALE_P, sessionA));
         apri(a, sessionA);
-        assertTrue(registro.canPublish(CANALE_P, sessionA), "P");
-        assertTrue(registro.canPublish(CANALE_A, sessionA), "A");
+        assertTrue(registro.canPublish(CANALE_P, sessionA));
         assertFalse(registro.canPublish(CANALE_P, a), "il wallet no: a parlare e' la sessione");
     }
 
@@ -41,26 +72,13 @@ contract JungleGameTest is Table {
         vm.prank(a);
         game.jungledidakooLeave();
         assertFalse(registro.canPublish(CANALE_P, sessionA));
-        assertFalse(registro.canPublish(CANALE_A, sessionA));
     }
 
     function test_la_fine_della_partita_chiude_i_canali() public {
         avvia();
         assertTrue(registro.canPublish(CANALE_P, sessionA), "aperti durante la partita");
-        assertTrue(registro.canPublish(CANALE_A, sessionB));
+        assertTrue(registro.canPublish(CANALE_P, sessionB));
         gioca();
-        assertFalse(registro.canPublish(CANALE_P, sessionA));
-        assertFalse(registro.canPublish(CANALE_A, sessionA));
-        assertFalse(registro.canPublish(CANALE_P, sessionB));
-        assertFalse(registro.canPublish(CANALE_A, sessionB));
-    }
-
-    function test_la_rinuncia_chiude_i_canali() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        vm.warp(block.timestamp + game.REVEAL_SECONDS() + 1);
-        game.jungledidakooForfeit(accordo());
         assertFalse(registro.canPublish(CANALE_P, sessionA));
         assertFalse(registro.canPublish(CANALE_P, sessionB));
     }
@@ -69,9 +87,9 @@ contract JungleGameTest is Table {
         apri(a, sessionA);
         compra(b);
         vm.deal(b, b.balance + POSTA);
-        vm.prank(b);
+        vm.prank(b, b);
         vm.expectRevert(JungleGame.SessionTaken.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionA);
+        game.jungledidakooOpen{value: POSTA}(sessionA, ARENA, address(0), V);
         assertEq(game.sessionOf(sessionA), a, "la sessione e' di a");
         assertTrue(registro.canPublish(CANALE_P, sessionA), "e parla");
 
@@ -79,9 +97,9 @@ contract JungleGameTest is Table {
         game.jungledidakooLeave();
         assertEq(game.sessionOf(sessionA), a, "resa la sessione resta di a");
         assertFalse(registro.canPublish(CANALE_P, sessionA), "ma tace");
-        vm.prank(b);
+        vm.prank(b, b);
         vm.expectRevert(JungleGame.SessionTaken.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionA);
+        game.jungledidakooOpen{value: POSTA}(sessionA, ARENA, address(0), V);
         apri(a, sessionA);
         assertEq(game.sessionOf(sessionA), a);
         assertTrue(registro.canPublish(CANALE_P, sessionA), "il posto nuovo le rida' la voce");
@@ -96,47 +114,12 @@ contract JungleGameTest is Table {
 
         compra(b);
         vm.deal(b, b.balance + POSTA);
-        vm.prank(b);
+        vm.prank(b, b);
         vm.expectRevert(JungleGame.SessionTaken.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionA);
+        game.jungledidakooOpen{value: POSTA}(sessionA, ARENA, address(0), V);
 
         apri(a, sessionA);
         assertTrue(registro.canPublish(CANALE_P, sessionA), "a la riapre e torna a parlare");
-    }
-
-    function test_la_voce_va_con_l_ultimo_posto_o_partita() public {
-        avvia();
-        assertEq(game.sessionOf(sessionA), a, "la partita in corso tiene la sessione");
-        apri(a, sessionA);
-        vm.prank(a);
-        game.jungledidakooLeave();
-        assertTrue(registro.canPublish(CANALE_P, sessionA), "il posto reso non toglie la voce alla partita");
-        apri(a, sessionA);
-        gioca();
-        assertTrue(registro.canPublish(CANALE_P, sessionA), "la fine non toglie la voce al posto aperto");
-        assertFalse(registro.canPublish(CANALE_P, sessionB), "l'altra sessione, senza posto, tace");
-        assertEq(game.sessionOf(sessionB), b, "ma resta di b");
-        vm.prank(a);
-        game.jungledidakooLeave();
-        assertFalse(registro.canPublish(CANALE_P, sessionA), "con l'ultimo posto la voce se ne va");
-        assertEq(game.sessionOf(sessionA), a, "la sessione no");
-    }
-
-    function test_la_rinuncia_chiude_le_voci_e_tiene_le_sessioni() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        vm.warp(block.timestamp + game.REVEAL_SECONDS() + 1);
-        game.jungledidakooForfeit(accordo());
-        assertEq(game.sessionOf(sessionA), a);
-        assertEq(game.sessionOf(sessionB), b);
-        vm.deal(b, b.balance + POSTA);
-        vm.prank(b);
-        vm.expectRevert(JungleGame.SessionTaken.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionA);
-        apri(b, sessionB);
-        assertEq(game.sessionOf(sessionB), b);
-        assertTrue(registro.canPublish(CANALE_P, sessionB));
     }
 
     function test_un_registro_che_brucia_il_gas_non_ferma_il_posto() public {
@@ -145,21 +128,20 @@ contract JungleGameTest is Table {
             1,
             IStreamRegistry(address(new RegistroIngordo())),
             CANALE_P,
-            CANALE_A,
             vm.addr(CHIAVE_D)
         );
         compra(a);
         vm.deal(a, a.balance + POSTA);
-        vm.prank(a);
+        vm.prank(a, a);
         uint256 prima = gasleft();
-        ingordo.jungledidakooOpen{value: POSTA}(sessionA);
+        ingordo.jungledidakooOpen{value: POSTA}(sessionA, ARENA, address(0), V);
         uint256 speso = prima - gasleft();
-        (address sessione,,) = ingordo.seats(a);
+        (address sessione,,,,,) = ingordo.seats(a);
         assertEq(sessione, sessionA, "il posto si apre");
         assertLt(speso, 2 * ingordo.REGISTRY_GAS() + 300_000, "e il registro costa al piu' due tetti");
         vm.prank(a);
         ingordo.jungledidakooLeave();
-        (sessione,,) = ingordo.seats(a);
+        (sessione,,,,,) = ingordo.seats(a);
         assertEq(sessione, address(0), "e si rende");
     }
 
@@ -169,14 +151,13 @@ contract JungleGameTest is Table {
             1,
             IStreamRegistry(address(0xdead)),
             CANALE_P,
-            CANALE_A,
             vm.addr(CHIAVE_D)
         );
         compra(a);
         vm.deal(a, a.balance + POSTA);
-        vm.prank(a);
-        senza.jungledidakooOpen{value: POSTA}(sessionA);
-        (address sessione,,) = senza.seats(a);
+        vm.prank(a, a);
+        senza.jungledidakooOpen{value: POSTA}(sessionA, ARENA, address(0), V);
+        (address sessione,,,,,) = senza.seats(a);
         assertEq(sessione, sessionA);
 
         JungleGame rifiutato = new JungleGame(
@@ -184,32 +165,40 @@ contract JungleGameTest is Table {
             1,
             IStreamRegistry(address(registro)),
             CANALE_P,
-            CANALE_A,
             vm.addr(CHIAVE_D)
         );
         vm.deal(b, b.balance + POSTA);
         compra(b);
-        vm.prank(b);
-        rifiutato.jungledidakooOpen{value: POSTA}(sessionB);
-        (sessione,,) = rifiutato.seats(b);
+        vm.prank(b, b);
+        rifiutato.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), V);
+        (sessione,,,,,) = rifiutato.seats(b);
         assertEq(sessione, sessionB, "il registro rifiuta il grant, il posto si apre");
         assertFalse(registro.canPublish(CANALE_P, sessionB));
     }
 
-    function test_l_accordo_si_hasha_come_il_bundle() public view {
-        assertEq(game.matchHash(accordo()), vm.parseJsonBytes32(json, ".game.matchHash"));
-    }
-
-    function test_la_posta_va_al_vincitore_e_il_commemorativo_pure() public {
+    function test_a_fine_partita_ognuno_riprende_il_suo_resto_e_il_vincitore_il_commemorativo() public {
         avvia();
         JungleGame.Game memory g = game.gameOf(gameId);
-        uint256 inGioco = uint256(g.escrowWhite) + g.escrowBlack;
-        assertEq(inGioco, 2 * (POSTA - game.FLOAT()), "due poste meno i due fondi");
+        assertEq(uint256(g.escrowWhite) + g.escrowBlack, 2 * (POSTA - game.FLOAT()), "due poste meno i due fondi");
 
-        uint256 prima = bianco.balance;
-        gioca();
-        assertEq(bianco.balance - prima, inGioco, "i due resti al vincitore");
-        assertEq(game.gameOf(gameId).payout, inGioco, "e la vincita e' scritta");
+        vm.txGasPrice(30 gwei);
+        gioca(quantiPly - 1);
+        g = game.gameOf(gameId);
+        assertTrue(g.escrowWhite != g.escrowBlack, "due resti diversi");
+        uint256 primaB = bianco.balance;
+        uint256 primaN = nero.balance;
+        (uint8 colore,, uint8 da, uint8 dove) = ply(quantiPly - 1);
+        vm.warp(block.timestamp + 2);
+        seqAtteso = atteso();
+        vm.prank(colore == 1 ? sessioneBianca : sessioneNera);
+        game.jungledidakooMove(gameId, seqAtteso, da, dove);
+
+        assertEq(game.gameOf(gameId).winner, bianco, "vince il bianco");
+        assertEq(bianco.balance - primaB, g.escrowWhite, "al vincitore il suo resto");
+        assertEq(nero.balance - primaN, g.escrowBlack, "al perdente il suo");
+        JungleGame.Game memory ended = game.gameOf(gameId);
+        assertEq(ended.escrowWhite, g.escrowWhite, "i due resti restano scritti");
+        assertEq(ended.escrowBlack, g.escrowBlack);
         assertEq(address(game).balance, 0, "e il contratto e' vuoto");
         assertEq(memento.ownerOf(gameId), bianco, "il commemorativo al vincitore");
         assertEq(memento.balanceOf(bianco), 1);
@@ -235,18 +224,19 @@ contract JungleGameTest is Table {
 
     function test_il_rimborso_ha_un_tetto_sopra_il_basefee() public {
         avvia();
+        gioca(1);
         vm.fee(10 gwei);
         vm.txGasPrice(5000 gwei);
-        uint256 restoPrima = game.gameOf(gameId).escrowWhite;
-        uint256 sessionePrima = sessioneBianca.balance;
+        uint256 restoPrima = game.gameOf(gameId).escrowBlack;
+        uint256 sessionePrima = sessioneNera.balance;
 
-        (,, uint8 da, uint8 dove) = ply(0);
+        (uint8 da, uint8 dove) = mossaNera();
         seqAtteso = atteso();
-        vm.prank(sessioneBianca);
+        vm.prank(sessioneNera);
         game.jungledidakooMove(gameId, seqAtteso, da, dove);
 
-        uint256 rimborso = sessioneBianca.balance - sessionePrima;
-        uint256 speso = restoPrima - game.gameOf(gameId).escrowWhite;
+        uint256 rimborso = sessioneNera.balance - sessionePrima;
+        uint256 speso = restoPrima - game.gameOf(gameId).escrowBlack;
         assertEq(speso, rimborso, "dal resto del suo lato");
         assertLt(
             rimborso,
@@ -255,86 +245,28 @@ contract JungleGameTest is Table {
         );
     }
 
-    function test_senza_pass_non_si_apre() public {
-        vm.deal(a, POSTA);
-        vm.prank(a);
-        vm.expectRevert(JungleGame.NoPass.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionA);
-    }
-
-    function test_senza_pass_non_si_rivela() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        collezione.dai(a, 1, 0);
-
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.NoPass.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-
-        rivela(sessionB, semeB());
-        JungleGame.Game memory g = game.gameOf(gameId);
-        assertEq(g.status, game.REVEALING(), "il seme di chi tiene il pass entra");
-        assertEq(g.revealed, 2);
-
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.NoPass.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-
-        vm.warp(block.timestamp + game.REVEAL_SECONDS() + 1);
-        uint256 prima = b.balance;
-        game.jungledidakooForfeit(m);
-        assertEq(game.gameOf(gameId).winner, b, "i due resti a chi ha rivelato");
-        assertGt(b.balance, prima);
-    }
-
-    function test_senza_pass_la_rinuncia_aspetta_lo_stesso() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        JungleGame.Match memory m = accordo();
-
-        collezione.dai(b, 1, 0);
-        vm.expectRevert(JungleGame.StillRevealing.selector);
-        game.jungledidakooForfeit(m);
-        vm.warp(block.timestamp + game.REVEAL_SECONDS());
-        vm.expectRevert(JungleGame.StillRevealing.selector);
-        game.jungledidakooForfeit(m);
-
-        (, uint128 escrowA,) = game.seats(a);
-        (, uint128 escrowB,) = game.seats(b);
-        uint256 prima = a.balance;
-        vm.warp(block.timestamp + 1);
-        vm.prank(sessionA);
-        game.jungledidakooForfeit(m);
-
-        JungleGame.Game memory g = game.gameOf(gameId);
-        assertEq(g.status, 2);
-        assertEq(g.endReason, game.FORFEITED());
-        assertEq(g.winner, a);
-        assertEq(a.balance - prima, uint256(escrowA) + escrowB, "i due resti a chi ha rivelato, alla scadenza");
-        vm.expectRevert(JungleMemento.NoToken.selector);
-        memento.ownerOf(gameId);
+    function test_senza_pass_si_apre() public {
+        siedi(a, sessionA, ARENA, address(0));
+        (address sessione,,,,,) = game.seats(a);
+        assertEq(sessione, sessionA, "il posto si apre");
     }
 
     function test_la_posta_e_esatta() public {
         compra(a);
         vm.deal(a, 2 * POSTA);
-        vm.prank(a);
+        vm.prank(a, a);
         vm.expectRevert(JungleGame.BadStake.selector);
-        game.jungledidakooOpen{value: POSTA - 1}(sessionA);
-        vm.prank(a);
+        game.jungledidakooOpen{value: POSTA - 1}(sessionA, ARENA, address(0), V);
+        vm.prank(a, a);
         vm.expectRevert(JungleGame.BadStake.selector);
-        game.jungledidakooOpen{value: POSTA + 1}(sessionA);
+        game.jungledidakooOpen{value: POSTA + 1}(sessionA, ARENA, address(0), V);
     }
 
     function test_l_apertura_anticipa_il_fondo_alla_sessione() public {
         uint256 prima = sessionA.balance;
         apri(a, sessionA);
         assertEq(sessionA.balance - prima, game.FLOAT(), "il fondo alla sessione");
-        (address session, uint128 escrow,) = game.seats(a);
+        (address session, uint128 escrow,,,,) = game.seats(a);
         assertEq(session, sessionA);
         assertEq(escrow, POSTA - game.FLOAT());
     }
@@ -343,7 +275,7 @@ contract JungleGameTest is Table {
         vm.deal(sessionA, 0.25 ether);
         apri(a, sessionA);
         assertEq(sessionA.balance, game.FLOAT(), "la sessione arriva al fondo");
-        (, uint128 escrow,) = game.seats(a);
+        (, uint128 escrow,,,,) = game.seats(a);
         assertEq(escrow, POSTA - (game.FLOAT() - 0.25 ether), "il resto resta nel posto");
     }
 
@@ -351,7 +283,7 @@ contract JungleGameTest is Table {
         vm.deal(sessionA, 2 ether);
         apri(a, sessionA);
         assertEq(sessionA.balance, 2 ether, "niente alla sessione");
-        (, uint128 escrow,) = game.seats(a);
+        (, uint128 escrow,,,,) = game.seats(a);
         assertEq(escrow, POSTA, "la posta intera nel posto");
         uint256 prima = a.balance;
         vm.prank(a);
@@ -362,9 +294,9 @@ contract JungleGameTest is Table {
     function test_un_posto_solo_per_wallet() public {
         apri(a, sessionA);
         vm.deal(a, POSTA);
-        vm.prank(a);
+        vm.prank(a, a);
         vm.expectRevert(JungleGame.SeatOpen.selector);
-        game.jungledidakooOpen{value: POSTA}(sessionB);
+        game.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), V);
     }
 
     function test_il_posto_si_lascia_e_la_posta_torna() public {
@@ -373,7 +305,7 @@ contract JungleGameTest is Table {
         vm.prank(a);
         game.jungledidakooLeave();
         assertEq(a.balance - prima, POSTA - game.FLOAT(), "la posta meno il fondo gia' dato");
-        (address session,,) = game.seats(a);
+        (address session,,,,,) = game.seats(a);
         assertEq(session, address(0));
         vm.prank(a);
         vm.expectRevert(JungleGame.NoSeat.selector);
@@ -397,17 +329,6 @@ contract JungleGameTest is Table {
         assertEq(game.minVersion(), 2, "la versione minima sale");
     }
 
-    function accordoV2() internal view returns (JungleGame.Match memory m, bytes memory sigA, bytes memory sigB) {
-        m = accordo();
-        m.v = 2;
-        uint256 chiaveA = vm.addr(0xb0b5e55) == sessionA ? 0xb0b5e55 : 0xca4015e55;
-        uint256 chiaveB = chiaveA == 0xb0b5e55 ? 0xca4015e55 : 0xb0b5e55;
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(chiaveA, game.matchHash(m));
-        sigA = abi.encodePacked(r, s, v);
-        (v, r, s) = vm.sign(chiaveB, game.matchHash(m));
-        sigB = abi.encodePacked(r, s, v);
-    }
-
     function test_il_tramonto_si_hasha_come_il_bundle() public {
         JungleGame.Deprecation memory d = JungleGame.Deprecation(
             uint16(vm.parseJsonUint(json, ".game.deprecation.minVersion")),
@@ -418,10 +339,9 @@ contract JungleGameTest is Table {
         assertEq(game.minVersion(), d.minVersion);
     }
 
-    function test_dopo_il_tramonto_i_posti_si_aprono_e_tornano() public {
+    function test_dopo_il_tramonto_i_posti_vecchi_tornano() public {
         apri(a, sessionA);
         spegni();
-        apri(b, sessionB);
 
         uint256 prima = a.balance;
         vm.prank(a);
@@ -429,37 +349,30 @@ contract JungleGameTest is Table {
         assertEq(a.balance - prima, POSTA - game.FLOAT(), "il posto torna come sempre");
     }
 
-    function test_dopo_il_tramonto_la_versione_vecchia_non_comincia() public {
+    function test_dopo_il_tramonto_si_apre_solo_la_versione_nuova() public {
         apri(a, sessionA);
-        apri(b, sessionB);
         spegni();
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
+        compra(b);
+        vm.deal(b, 2 * POSTA);
+        vm.prank(b, b);
         vm.expectRevert(JungleGame.VersionTooOld.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
+        game.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), V);
+        vm.prank(b, b);
+        game.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), 2);
+        assertEq(game.waiting(2), b, "la v2 aspetta la sua");
+        (,, uint256 partitaA,,,) = game.seats(a);
+        assertEq(partitaA, 0, "e non pesca il posto vecchio");
     }
 
-    function test_dopo_il_tramonto_la_versione_nuova_comincia() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
+    function test_dopo_il_tramonto_l_invito_vecchio_non_entra() public {
+        apri(a, sessionA, PRIVATA, invito());
         spegni();
-        (JungleGame.Match memory m, bytes memory sigA, bytes memory sigB) = accordoV2();
-        vm.prank(sessionA);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-        vm.prank(sessionB);
-        game.jungledidakooStart(m, sigA, sigB, semeB());
-        assertEq(game.gameOf(m.gameId).status, 1, "la v2 gioca sullo stesso contratto");
-    }
-
-    function test_la_partita_in_rivelazione_parte_lo_stesso() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        spegni();
-        rivela(sessionB, semeB());
-        assertEq(game.gameOf(gameId).status, 1, "il secondo seme avvia");
+        compra(b);
+        vm.deal(b, POSTA);
+        bytes memory firma = firmaInvito();
+        vm.prank(b, b);
+        vm.expectRevert(JungleGame.VersionTooOld.selector);
+        game.jungledidakooJoin{value: POSTA}(a, sessionB, firma, V);
     }
 
     function test_la_partita_in_corso_si_gioca_e_paga_dopo_il_tramonto() public {
@@ -468,7 +381,7 @@ contract JungleGameTest is Table {
         uint256 prima = bianco.balance;
         gioca();
         assertEq(game.gameOf(gameId).status, 2, "finita");
-        assertEq(bianco.balance - prima, 2 * (POSTA - game.FLOAT()), "i due resti al vincitore");
+        assertEq(bianco.balance - prima, POSTA - game.FLOAT(), "il suo resto al vincitore");
         assertEq(memento.ownerOf(gameId), bianco, "e il commemorativo");
     }
 
@@ -498,7 +411,7 @@ contract JungleGameTest is Table {
 
     function test_senza_D_nessun_tramonto() public {
         JungleGame senza = new JungleGame(
-            IJunglePass(address(pass)), 1, IStreamRegistry(address(registro)), CANALE_P, CANALE_A, address(0)
+            IJunglePass(address(pass)), 1, IStreamRegistry(address(registro)), CANALE_P, address(0)
         );
         JungleGame.Deprecation memory d = JungleGame.Deprecation(2, uint64(block.timestamp));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(CHIAVE_D, senza.deprecationHash(d));
@@ -508,333 +421,6 @@ contract JungleGameTest is Table {
         bytes memory nulla = new bytes(65);
         vm.expectRevert(JungleGame.BadSignature.selector);
         senza.jungledidakooSunset(d, nulla);
-    }
-
-    function test_parte_solo_con_le_due_firme() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadSignature.selector);
-        game.jungledidakooStart(m, sigB, sigA, semeA());
-    }
-
-    function test_il_seme_deve_tornare_al_commit() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadReveal.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeB());
-    }
-
-    function test_partono_solo_le_due_sessioni() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(address(0xBAD));
-        vm.expectRevert(JungleGame.NotAPlayer.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_senza_i_due_posti_non_si_parte() public {
-        apri(a, sessionA);
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.NoSeat.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_lo_stesso_accordo_non_parte_due_volte() public {
-        avvia();
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.AlreadyStarted.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_la_categoria_e_arena_o_privata() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        m.category = 1;
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadCategory.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_l_accordo_manomesso_non_parte() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        m.t += 1;
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadMatch.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_i_due_commit_devono_essere_diversi() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        m.commitB = m.commitA;
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.SameCommit.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_il_limite_delle_ripetizioni_e_uno_solo() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        assertEq(m.repetitionLimit, game.REPETITION_LIMIT(), "il fixture porta il limite del motore");
-        m.repetitionLimit = 16;
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadMatch.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-        m.repetitionLimit = 0;
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadMatch.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-    }
-
-    function test_il_primo_seme_blocca_i_posti_e_il_secondo_avvia() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-
-        JungleGame.Game memory g = game.gameOf(gameId);
-        assertEq(g.status, game.REVEALING(), "in rivelazione");
-        assertEq(g.revealed, 1, "il primo seme e' di a");
-        assertEq(g.seed, semeA(), "e sta li' da solo");
-        assertEq(g.lastAt, uint64(block.timestamp), "l'orologio dell'altro parte da qui");
-        (,, uint256 bloccoA) = game.seats(a);
-        (,, uint256 bloccoB) = game.seats(b);
-        assertEq(bloccoA, gameId, "il posto di a e' della partita");
-        assertEq(bloccoB, gameId, "e quello di b pure");
-
-        vm.prank(b);
-        vm.expectRevert(JungleGame.SeatBusy.selector);
-        game.jungledidakooLeave();
-        vm.prank(a);
-        vm.expectRevert(JungleGame.SeatBusy.selector);
-        game.jungledidakooLeave();
-
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.AlreadyRevealed.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-        vm.prank(sessionB);
-        vm.expectRevert(JungleGame.BadReveal.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-        (,, uint8 da, uint8 dove) = ply(0);
-        seqAtteso = atteso();
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.NotRunning.selector);
-        game.jungledidakooMove(gameId, seqAtteso, da, dove);
-
-        vm.warp(block.timestamp + 5);
-        rivela(sessionB, semeB());
-        g = game.gameOf(gameId);
-        assertEq(g.status, 1, "in corso");
-        assertEq(g.seed, semeA() ^ semeB(), "il seme e' lo XOR dei due");
-        assertEq(g.seed, vm.parseJsonBytes32(json, ".game.seed"));
-        assertEq(g.white, bianco);
-        assertEq(g.lastAt, uint64(block.timestamp), "il turno del bianco parte dal secondo seme");
-        (address sessione,,) = game.seats(a);
-        assertEq(sessione, address(0), "i posti sono consumati");
-    }
-
-    function test_l_ordine_dei_due_semi_non_conta() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionB, semeB());
-        assertEq(game.gameOf(gameId).revealed, 2, "il primo seme e' di b");
-        rivela(sessionA, semeA());
-        JungleGame.Game memory g = game.gameOf(gameId);
-        assertEq(g.status, 1);
-        assertEq(g.white, bianco, "lo stesso bianco");
-        assertEq(g.board, vm.parseJsonUint(json, ".game.initialBoard"), "la stessa scacchiera");
-    }
-
-    function test_il_gas_del_primo_seme_torna_dal_posto() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        vm.txGasPrice(30 gwei);
-        uint256 prima = sessionA.balance;
-        rivela(sessionA, semeA());
-        uint256 rimborso = sessionA.balance - prima;
-        (, uint128 escrow,) = game.seats(a);
-        assertGt(rimborso, 0, "qualcosa e' tornato");
-        assertEq(POSTA - game.FLOAT() - escrow, rimborso, "dal posto di chi ha rivelato");
-        (, uint128 escrowB,) = game.seats(b);
-        assertEq(escrowB, POSTA - game.FLOAT(), "e non dall'altro");
-    }
-
-    function test_chi_non_rivela_perde_la_posta() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        JungleGame.Match memory m = accordo();
-
-        vm.expectRevert(JungleGame.StillRevealing.selector);
-        game.jungledidakooForfeit(m);
-        vm.warp(block.timestamp + game.REVEAL_SECONDS());
-        vm.expectRevert(JungleGame.StillRevealing.selector);
-        game.jungledidakooForfeit(m);
-
-        (, uint128 escrowA,) = game.seats(a);
-        (, uint128 escrowB,) = game.seats(b);
-        uint256 prima = a.balance;
-        vm.warp(block.timestamp + 1);
-        vm.prank(address(0xBAD));
-        game.jungledidakooForfeit(m);
-
-        assertEq(a.balance - prima, uint256(escrowA) + escrowB, "i due resti a chi ha rivelato");
-        JungleGame.Game memory g = game.gameOf(gameId);
-        assertEq(g.status, 2);
-        assertEq(g.endReason, game.FORFEITED());
-        assertEq(g.winner, a);
-        assertEq(g.white, address(0), "nessuna partita giocata");
-        assertEq(address(game).balance, 0);
-        vm.expectRevert(JungleMemento.NoToken.selector);
-        memento.ownerOf(gameId);
-        (address sessione,,) = game.seats(b);
-        assertEq(sessione, address(0), "i posti sono consumati");
-
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.prank(sessionB);
-        vm.expectRevert(JungleGame.AlreadyStarted.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeB());
-        vm.expectRevert(JungleGame.NotRevealing.selector);
-        game.jungledidakooForfeit(m);
-    }
-
-    function test_il_secondo_seme_in_ritardo_e_rifiutato() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        vm.warp(block.timestamp + game.REVEAL_SECONDS() + 1);
-        vm.prank(sessionB);
-        vm.expectRevert(JungleGame.RevealExpired.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeB());
-        uint256 prima = a.balance;
-        vm.prank(sessionB);
-        game.jungledidakooForfeit(m);
-        assertEq(game.gameOf(gameId).winner, a);
-        assertGt(a.balance, prima);
-    }
-
-    function test_la_rinuncia_vuole_un_seme_in_attesa_dell_altro() public {
-        JungleGame.Match memory m = accordo();
-        vm.expectRevert(JungleGame.NotRevealing.selector);
-        game.jungledidakooForfeit(m);
-        avvia();
-        vm.warp(block.timestamp + game.REVEAL_SECONDS() + 1);
-        vm.expectRevert(JungleGame.NotRevealing.selector);
-        game.jungledidakooForfeit(m);
-        m.t += 1;
-        vm.expectRevert(JungleGame.BadMatch.selector);
-        game.jungledidakooForfeit(m);
-    }
-
-    function test_il_primo_seme_ha_una_finestra() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        bytes memory sigA = firmaA();
-        bytes memory sigB = firmaB();
-        uint256 t = m.t;
-
-        vm.warp(t + game.AGREEMENT_SECONDS() + 1);
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.OutOfWindow.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-
-        vm.warp(t - game.CLOCK_DRIFT_SECONDS() - 1);
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.OutOfWindow.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeA());
-
-        vm.warp(t - game.CLOCK_DRIFT_SECONDS());
-        rivela(sessionA, semeA());
-        assertEq(game.gameOf(gameId).status, game.REVEALING(), "l'orologio del telefono avanti di un minuto passa");
-        vm.warp(t + game.AGREEMENT_SECONDS());
-        vm.prank(sessionB);
-        vm.expectRevert(JungleGame.RevealExpired.selector);
-        game.jungledidakooStart(m, sigA, sigB, semeB());
-    }
-
-    function test_il_secondo_seme_non_vuole_le_firme() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        JungleGame.Match memory m = accordo();
-        bytes memory nulla = "";
-        vm.prank(sessionA);
-        vm.expectRevert(JungleGame.BadSignature.selector);
-        game.jungledidakooStart(m, nulla, nulla, semeA());
-
-        rivela(sessionA, semeA());
-        vm.warp(block.timestamp + game.REVEAL_SECONDS());
-        vm.prank(sessionB);
-        game.jungledidakooStart(m, nulla, nulla, semeB());
-        JungleGame.Game memory g = game.gameOf(gameId);
-        assertEq(g.status, 1, "in corso");
-        assertEq(g.seed, semeA() ^ semeB());
-        assertEq(g.white, bianco);
-        assertEq(g.category, m.category, "la categoria e' quella del primo seme");
-    }
-
-    function test_il_secondo_seme_e_dei_posti_bloccati() public {
-        apri(a, sessionA);
-        apri(b, sessionB);
-        rivela(sessionA, semeA());
-        JungleGame.Match memory m = accordo();
-        bytes memory nulla = "";
-
-        vm.prank(address(0xBAD));
-        vm.expectRevert(JungleGame.NotAPlayer.selector);
-        game.jungledidakooStart(m, nulla, nulla, semeB());
-
-        uint8 firmata = m.category;
-        m.category = firmata == game.ARENA() ? game.PRIVATE() : game.ARENA();
-        vm.prank(sessionB);
-        vm.expectRevert(JungleGame.BadMatch.selector);
-        game.jungledidakooStart(m, nulla, nulla, semeB());
-        m.category = firmata;
-
-        JungleGame.Match memory altro = accordo();
-        altro.t += 1;
-        altro.gameId = game.gameIdOf(altro.a, altro.b, altro.commitA, altro.commitB, altro.t);
-        vm.prank(sessionB);
-        vm.expectRevert(JungleGame.SeatBusy.selector);
-        game.jungledidakooStart(altro, nulla, nulla, semeB());
     }
 
     function test_muove_solo_chi_tocca() public {
@@ -863,11 +449,15 @@ contract JungleGameTest is Table {
         game.jungledidakooMove(gameId, seqAtteso, 56, 30);
     }
 
+    function scadenza() internal view returns (uint64 fine) {
+        (,,, fine,) = game.clockOf(gameId);
+    }
+
     function test_la_mossa_in_ritardo_e_rifiutata() public {
         avvia();
         vm.warp(block.timestamp + game.TURN_SECONDS() + 1);
         (,, uint8 da, uint8 dove) = ply(0);
-        (uint64 fine, uint8 turno) = game.turnoDi(gameId);
+        (uint8 turno,,, uint64 fine,) = game.clockOf(gameId);
         assertEq(turno, 0, "il tratto e' del nero");
         assertEq(fine, uint64(block.timestamp) - 1 + game.TURN_SECONDS(), "dalla fine del turno saltato");
         seqAtteso = atteso();
@@ -879,7 +469,7 @@ contract JungleGameTest is Table {
     function test_l_orologio_corre_attraverso_i_salti() public {
         avvia();
         vm.warp(block.timestamp + 71);
-        (uint64 fine, uint8 turno) = game.turnoDi(gameId);
+        (uint8 turno,,, uint64 fine,) = game.clockOf(gameId);
         assertEq(turno, 0, "dopo cinque salti tocca al nero");
         assertEq(
             fine, uint64(block.timestamp) - 71 + 70 + game.PENALTY_SECONDS(), "col suo turno penalizzato"
@@ -995,7 +585,7 @@ contract JungleGameTest is Table {
         game.jungledidakooMove(gameId, seqAtteso, da, dove);
         assertEq(game.gameOf(gameId).penalized, 2, "il bianco porta la penalita");
         assertEq(
-            game.deadlineOf(gameId), uint64(block.timestamp) + game.PENALTY_SECONDS(), "e ha dieci secondi"
+            scadenza(), uint64(block.timestamp) + game.PENALTY_SECONDS(), "e ha dieci secondi"
         );
 
         vm.warp(block.timestamp + game.PENALTY_SECONDS() + 1);
@@ -1014,7 +604,7 @@ contract JungleGameTest is Table {
         game.jungledidakooMove(gameId, seqAtteso, bDa, bDove);
         assertEq(game.gameOf(gameId).penalized, 0, "la mossa in tempo toglie la penalita");
         assertEq(
-            game.deadlineOf(gameId),
+            scadenza(),
             uint64(block.timestamp) + game.TURN_SECONDS(),
             "e il nero ha il turno intero"
         );
@@ -1033,7 +623,7 @@ contract JungleGameTest is Table {
         seqAtteso = atteso();
         vm.prank(sessioneBianca);
         game.jungledidakooMove(gameId, seqAtteso, dove, da);
-        (, uint8 conteggio) = JungleRules.contatore(game.gameOf(gameId).repetitions, 1);
+        (, uint8 conteggio) = JungleRules.counter(game.gameOf(gameId).repetitions, 1);
         assertEq(conteggio, 2, "due mosse dello stesso animale");
 
         seqAtteso = atteso();
@@ -1043,23 +633,29 @@ contract JungleGameTest is Table {
         seqAtteso = atteso();
         vm.prank(sessioneNera);
         game.jungledidakooMove(gameId, seqAtteso, nDa, nDove);
-        (, conteggio) = JungleRules.contatore(game.gameOf(gameId).repetitions, 1);
+        (, conteggio) = JungleRules.counter(game.gameOf(gameId).repetitions, 1);
         assertEq(conteggio, 0, "azzerato dal salto");
     }
 
     function test_la_resa_da_la_partita_all_altro() public {
         avvia();
+        vm.txGasPrice(30 gwei);
         gioca(4);
-        uint256 prima = bianco.balance;
-        uint256 inGioco = uint256(game.gameOf(gameId).escrowWhite) + game.gameOf(gameId).escrowBlack;
+        JungleGame.Game memory g = game.gameOf(gameId);
+        uint256 primaB = bianco.balance;
+        uint256 primaN = nero.balance;
         vm.prank(sessioneNera);
         game.jungledidakooResign(gameId);
 
-        JungleGame.Game memory g = game.gameOf(gameId);
+        assertEq(bianco.balance - primaB, g.escrowWhite, "al vincitore il suo resto");
+        assertEq(nero.balance - primaN, g.escrowBlack, "a chi si arrende il suo");
+        g = game.gameOf(gameId);
+        assertEq(bianco.balance - primaB, g.escrowWhite, "i due resti restano scritti");
+        assertEq(nero.balance - primaN, g.escrowBlack);
+        assertEq(address(game).balance, 0, "la resa non si rimborsa da un resto gia' pagato");
         assertEq(g.status, 2);
         assertEq(g.winner, bianco);
         assertEq(g.endReason, game.RESIGNED());
-        assertEq(bianco.balance - prima, inGioco);
         assertEq(memento.ownerOf(gameId), bianco);
     }
 
@@ -1092,6 +688,8 @@ contract JungleGameTest is Table {
         assertEq(bianco.balance - primaB, g.escrowWhite, "al bianco il suo");
         assertEq(nero.balance - primaN, g.escrowBlack, "al nero il suo");
         g = game.gameOf(gameId);
+        assertEq(bianco.balance - primaB, g.escrowWhite, "i due resti restano scritti");
+        assertEq(nero.balance - primaN, g.escrowBlack);
         assertEq(g.status, 2);
         assertEq(g.winner, address(0), "nessun vincitore");
         assertEq(g.endReason, game.ABANDONED());
@@ -1102,12 +700,12 @@ contract JungleGameTest is Table {
     function test_chi_sparisce_lo_si_batte_camminando() public {
         avvia();
         JungleGame.Game memory g = game.gameOf(gameId);
-        uint8[63] memory cella = JungleRules.apri(g.board);
+        uint8[63] memory cella = JungleRules.unpack(g.board);
         uint32 rip = g.repetitions;
         for (uint256 passi = 0; passi < 60; passi++) {
             g = game.gameOf(gameId);
             if (g.status == 2) break;
-            cella = JungleRules.apri(g.board);
+            cella = JungleRules.unpack(g.board);
             rip = g.repetitions;
             (uint8 da, uint8 dove) = versoLaTana(cella, rip, g.repetitionLimit);
             if (passi > 0) vm.warp(block.timestamp + game.TURN_SECONDS() + 1);
@@ -1121,17 +719,260 @@ contract JungleGameTest is Table {
         assertEq(g.endReason, game.PYRAMID());
     }
 
+    function test_l_arena_accoppia_il_secondo_posto_col_primo() public {
+        apri(a, sessionA);
+        assertEq(game.waiting(V), a, "il primo aspetta");
+        (,, uint256 partita,,,) = game.seats(a);
+        assertEq(partita, 0);
+
+        uint64 adesso = uint64(block.timestamp);
+        compra(b);
+        vm.deal(b, POSTA);
+        vm.expectEmit(address(game));
+        emit JungleGame.Paired(gameId, a, b, ARENA);
+        vm.prank(b, b);
+        game.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), V);
+        assertEq(game.waiting(V), address(0), "la coda si svuota");
+
+        (, uint128 restoA, uint256 partitaA,,,) = game.seats(a);
+        (, uint128 restoB, uint256 partitaB,,,) = game.seats(b);
+        assertEq(partitaA, gameId, "la partita e' quella del fixture");
+        assertEq(partitaB, gameId);
+        assertEq(restoA + restoB, 0, "le poste passano alla partita");
+
+        JungleGame.Game memory g = game.gameOf(gameId);
+        assertEq(g.status, 1);
+        assertEq(g.category, ARENA);
+        assertEq(g.escrowWhite + g.escrowBlack, 2 * (POSTA - game.FLOAT()));
+        assertEq(g.seed, bytes32(0), "il seme non c'e' ancora");
+        assertEq(g.seedBlock, block.number + 1, "e' l'hash del blocco dopo");
+        assertEq(g.lastAt, adesso + game.START_SECONDS(), "il turno del bianco apre dopo l'attesa");
+        assertEq(g.white, a, "i lati in ordine di indirizzo, finche' il seme non li decide");
+        assertEq(g.black, b);
+    }
+
+    function test_versioni_diverse_non_si_accoppiano() public {
+        apri(a, sessionA);
+        compra(b);
+        vm.deal(b, POSTA);
+        vm.prank(b, b);
+        game.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), V + 1);
+        assertEq(game.waiting(V), a);
+        assertEq(game.waiting(V + 1), b, "ognuna aspetta la sua");
+    }
+
+    function test_il_posto_in_attesa_si_lascia() public {
+        apri(a, sessionA);
+        vm.prank(a);
+        game.jungledidakooLeave();
+        assertEq(game.waiting(V), address(0), "la coda si svuota");
+        apri(b, sessionB);
+        assertEq(game.waiting(V), b, "e il prossimo aspetta");
+    }
+
+    function test_il_posto_accoppiato_non_si_lascia() public {
+        accoppia();
+        vm.prank(a);
+        vm.expectRevert(JungleGame.SeatBusy.selector);
+        game.jungledidakooLeave();
+        vm.prank(b);
+        vm.expectRevert(JungleGame.SeatBusy.selector);
+        game.jungledidakooLeave();
+    }
+
+    function test_la_categoria_e_arena_o_privata() public {
+        compra(a);
+        vm.deal(a, POSTA);
+        vm.startPrank(a, a);
+        vm.expectRevert(JungleGame.BadCategory.selector);
+        game.jungledidakooOpen{value: POSTA}(sessionA, 1, address(0), V);
+        vm.expectRevert(JungleGame.BadCategory.selector);
+        game.jungledidakooOpen{value: POSTA}(sessionA, ARENA, invito(), V);
+        vm.expectRevert(JungleGame.BadCategory.selector);
+        game.jungledidakooOpen{value: POSTA}(sessionA, PRIVATA, address(0), V);
+        vm.stopPrank();
+    }
+
+    function test_l_invito_si_firma_come_il_bundle() public view {
+        assertEq(game.inviteHash(a, b), vm.parseJsonBytes32(json, ".game.invite.hash"));
+        assertEq(vm.parseJsonAddress(json, ".game.invite.host"), a);
+        assertEq(vm.parseJsonAddress(json, ".game.invite.guest"), b);
+    }
+
+    function test_la_privata_parte_con_l_invito() public {
+        apri(a, sessionA, PRIVATA, invito());
+        (,,, uint8 categoria, address chiave,) = game.seats(a);
+        assertEq(categoria, PRIVATA);
+        assertEq(chiave, invito());
+        assertEq(game.waiting(V), address(0), "la privata non sta in coda");
+
+        entra(b, sessionB, a, firmaInvito());
+        (,, uint256 partita,, address resta,) = game.seats(a);
+        assertEq(partita, gameId, "l'ospite entra e la partita c'e'");
+        assertEq(resta, address(0), "l'invito si consuma");
+        assertEq(game.gameOf(gameId).category, PRIVATA);
+    }
+
+    function test_la_privata_non_si_accoppia_in_arena() public {
+        apri(a, sessionA, PRIVATA, invito());
+        apri(b, sessionB);
+        assertEq(game.waiting(V), b, "l'arena aspetta un'arena");
+        (,, uint256 partita,,,) = game.seats(a);
+        assertEq(partita, 0);
+    }
+
+    function test_l_invito_vale_per_l_ospite_firmato_e_una_volta() public {
+        apri(a, sessionA, PRIVATA, invito());
+        address altro = address(0xc0ffee);
+        compra(altro);
+        vm.deal(altro, POSTA);
+        bytes memory firma = firmaInvito();
+        vm.prank(altro, altro);
+        vm.expectRevert(JungleGame.BadSignature.selector);
+        game.jungledidakooJoin{value: POSTA}(a, address(0xc0ffee5e55), firma, V);
+
+        entra(b, sessionB, a, firma);
+        vm.prank(altro, altro);
+        vm.expectRevert(JungleGame.BadInvite.selector);
+        game.jungledidakooJoin{value: POSTA}(a, address(0xc0ffee5e55), firma, V);
+    }
+
+    function test_l_invito_non_e_per_chi_l_ha_aperto_ne_per_un_altra_versione() public {
+        apri(a, sessionA, PRIVATA, invito());
+        bytes memory firma = firmaInvito();
+        vm.deal(a, POSTA);
+        vm.prank(a, a);
+        vm.expectRevert(JungleGame.BadInvite.selector);
+        game.jungledidakooJoin{value: POSTA}(a, sessionB, firma, V);
+
+        compra(b);
+        vm.deal(b, POSTA);
+        vm.prank(b, b);
+        vm.expectRevert(JungleGame.OtherVersion.selector);
+        game.jungledidakooJoin{value: POSTA}(a, sessionB, firma, V + 1);
+
+        vm.prank(b, b);
+        vm.expectRevert(JungleGame.BadInvite.selector);
+        game.jungledidakooJoin{value: POSTA}(b, sessionB, firma, V);
+    }
+
+    function test_il_seme_e_l_hash_del_blocco_dopo() public {
+        accoppia();
+        (,, uint8 da, uint8 dove) = ply(0);
+        vm.prank(sessionA);
+        vm.expectRevert(JungleGame.SeedNotReady.selector);
+        game.jungledidakooMove(gameId, 0, da, dove);
+
+        semina();
+        JungleGame.Game memory g = game.gameOf(gameId);
+        assertEq(g.seed, seme(), "letto, il seme c'e' gia'");
+        assertEq(g.white, bianco, "col suo bianco");
+        assertEq(g.board, vm.parseJsonUint(json, ".game.initialBoard"));
+        assertEq(g.colors, uint8(vm.parseJsonUint(json, ".game.colors")));
+
+        vm.expectEmit(address(game));
+        emit JungleGame.Started(gameId, bianco, nero, ARENA);
+        gioca(1);
+        assertEq(game.gameOf(gameId).seq, 1, "la prima mossa lo scrive");
+    }
+
+    function test_il_nero_apre_la_partita_se_il_bianco_manca() public {
+        avvia();
+        vm.warp(block.timestamp + game.TURN_SECONDS() + 1);
+        (uint8 da, uint8 dove) = mossaNera();
+        seqAtteso = atteso();
+        vm.prank(sessioneNera);
+        game.jungledidakooMove(gameId, seqAtteso, da, dove);
+        JungleGame.Game memory g = game.gameOf(gameId);
+        assertEq(g.seq, 2, "il salto del bianco e la mossa del nero");
+        assertEq(g.white, bianco);
+    }
+
+    function test_senza_seme_entro_256_blocchi_ognuno_riprende_il_suo() public {
+        accoppia();
+        JungleGame.Game memory g = game.gameOf(gameId);
+        vm.roll(g.seedBlock + game.SEED_BLOCKS());
+        vm.expectRevert(JungleGame.StillPlaying.selector);
+        game.jungledidakooClose(gameId);
+
+        vm.roll(g.seedBlock + game.SEED_BLOCKS() + 1);
+        (,, uint8 da, uint8 dove) = ply(0);
+        vm.prank(sessionA);
+        vm.expectRevert(JungleGame.SeedExpired.selector);
+        game.jungledidakooMove(gameId, 0, da, dove);
+
+        uint256 primaA = a.balance;
+        uint256 primaB = b.balance;
+        game.jungledidakooClose(gameId);
+        assertEq(a.balance - primaA, POSTA - game.FLOAT(), "ad a il suo");
+        assertEq(b.balance - primaB, POSTA - game.FLOAT(), "a b il suo");
+        g = game.gameOf(gameId);
+        assertEq(g.status, 2);
+        assertEq(g.winner, address(0), "nessun vincitore");
+        assertEq(g.endReason, game.ABANDONED());
+        vm.expectRevert(JungleMemento.NoToken.selector);
+        memento.ownerOf(gameId);
+        (address sessione,,,,,) = game.seats(a);
+        assertEq(sessione, address(0), "i posti si liberano");
+    }
+
+    function test_la_fine_libera_i_posti() public {
+        avvia();
+        gioca();
+        (address sessione,,,,,) = game.seats(a);
+        assertEq(sessione, address(0));
+        (sessione,,,,,) = game.seats(b);
+        assertEq(sessione, address(0));
+        apri(a, sessionA);
+        assertEq(game.waiting(V), a, "e si riapre");
+    }
+
+    function test_il_gas_dell_accoppiamento() public {
+        compra(a);
+        vm.deal(a, POSTA);
+        vm.prank(a, a);
+        uint256 prima = gasleft();
+        game.jungledidakooOpen{value: POSTA}(sessionA, ARENA, address(0), V);
+        uint256 attesa = prima - gasleft();
+        compra(b);
+        vm.deal(b, POSTA);
+        vm.prank(b, b);
+        prima = gasleft();
+        game.jungledidakooOpen{value: POSTA}(sessionB, ARENA, address(0), V);
+        uint256 arena = prima - gasleft();
+
+        apri(address(0xa11ce), address(0xa11ce5e55), PRIVATA, invito());
+        compra(address(0xb0b0));
+        vm.deal(address(0xb0b0), POSTA);
+        bytes memory firma = firmaInvitoPer(address(0xa11ce), address(0xb0b0));
+        vm.prank(address(0xb0b0), address(0xb0b0));
+        prima = gasleft();
+        game.jungledidakooJoin{value: POSTA}(address(0xa11ce), address(0xb0b05e55), firma, V);
+        uint256 privata = prima - gasleft();
+
+        emit log_named_uint("Open in attesa", attesa);
+        emit log_named_uint("Open che accoppia (Arena)", arena);
+        emit log_named_uint("Join (privata)", privata);
+        assertLt(arena, 600_000);
+        assertLt(privata, 600_000);
+    }
+
+    function firmaInvitoPer(address host, address ospite) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0x1a7e, game.inviteHash(host, ospite));
+        return abi.encodePacked(r, s, v);
+    }
+
     function mossaDi(uint8 lato) internal view returns (uint8, uint8) {
         JungleGame.Game memory g = game.gameOf(gameId);
         uint16[] memory mosse =
-            JungleRules.mosse(JungleRules.apri(g.board), g.repetitions, lato, g.repetitionLimit);
+            JungleRules.moves(JungleRules.unpack(g.board), g.repetitions, lato, g.repetitionLimit);
         return (uint8(mosse[0] >> 6), uint8(mosse[0] & 63));
     }
 
     function mossaNera() internal view returns (uint8, uint8) {
         JungleGame.Game memory g = game.gameOf(gameId);
         uint16[] memory mosse =
-            JungleRules.mosse(JungleRules.apri(g.board), g.repetitions, 0, g.repetitionLimit);
+            JungleRules.moves(JungleRules.unpack(g.board), g.repetitions, 0, g.repetitionLimit);
         return (uint8(mosse[0] >> 6), uint8(mosse[0] & 63));
     }
 
@@ -1140,7 +981,7 @@ contract JungleGameTest is Table {
         pure
         returns (uint8, uint8)
     {
-        uint16[] memory mosse = JungleRules.mosse(cella, rip, 1, limite);
+        uint16[] memory mosse = JungleRules.moves(cella, rip, 1, limite);
         uint256 migliore = 0;
         uint256 minima = type(uint256).max;
         for (uint256 i = 0; i < mosse.length; i++) {

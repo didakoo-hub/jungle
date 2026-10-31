@@ -1,0 +1,5 @@
+/*
+  Content-Security-Policy: frame-ancestors 'self' https://farcaster.xyz https://*.farcaster.xyz https://warpcast.com https://*.warpcast.com
+
+/.well-known/farcaster.json
+  Access-Control-Allow-Origin: *

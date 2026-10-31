@@ -1,6 +1,6 @@
 import VueRouter from "vue-router";
 import DefaultContainer from "../components/layouts/DefaultContainer.vue";
-import RankPage from "../components/pages/RankPage.vue";
+import MatchesPage from "../components/pages/MatchesPage.vue";
 import AvatarPage from "../components/pages/AvatarPage.vue";
 import BoardGame from "../components/pages/BoardGame.vue";
 import InfoPage from "../components/pages/InfoPage.vue";
@@ -12,8 +12,9 @@ const routes = [
         path: "/",
         component: DefaultContainer,
         children: [
-            { path: "", redirect: "/ranking" },
-            { path: "ranking", name: "ranking", component: RankPage },
+            { path: "", name: "matches", component: MatchesPage },
+            { path: "matches", redirect: "/" },
+            { path: "ranking", redirect: "/" },
             { path: "avatar", name: "avatar", component: AvatarPage },
             { path: "menu", name: "menu", component: MenuPage },
             { path: "info", name: "info", component: InfoPage },

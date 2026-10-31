@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {JungleGame} from "./JungleGame.sol";
@@ -14,7 +14,7 @@ interface IERC721Receiver {
 
 contract JungleMemento {
 
-    string public constant name = "Jungle didakoo records";
+    string public constant name = "Jungle didakoo matches";
     string public constant symbol = "JUNGLE";
 
     JungleGame public immutable game;
@@ -50,12 +50,8 @@ contract JungleMemento {
     mapping(uint256 tokenId => address spender) public getApproved;
     mapping(address holder => mapping(address operator => bool)) public isApprovedForAll;
 
-    address[] private _holders;
-    mapping(address holder => uint256 index) private _holderIndex;
     mapping(address holder => uint256[] tokens) private _owned;
     mapping(uint256 tokenId => uint256 index) private _ownedIndex;
-
-    mapping(address holder => uint64 since) private _da;
 
     uint256 public totalMinted;
 
@@ -97,92 +93,35 @@ contract JungleMemento {
             seed: g.seed
         });
 
-        _aggiungi(g.winner, gameId);
+        _add(g.winner, gameId);
         totalMinted += 1;
         emit Transfer(address(0), g.winner, gameId);
-    }
-
-    function holdersCount() external view returns (uint256) {
-        return _holders.length;
-    }
-
-    function holdersPage(uint256 from, uint256 n)
-        external
-        view
-        returns (address[] memory chi, uint256[] memory saldi, uint64[] memory da)
-    {
-        uint256 fine = from + n;
-        if (fine > _holders.length) fine = _holders.length;
-        uint256 quanti = fine > from ? fine - from : 0;
-        chi = new address[](quanti);
-        saldi = new uint256[](quanti);
-        da = new uint64[](quanti);
-        for (uint256 i = 0; i < quanti; i++) {
-            chi[i] = _holders[from + i];
-            saldi[i] = _balance[chi[i]];
-            da[i] = _da[chi[i]];
-        }
-    }
-
-    function heldSince(address holder) external view returns (uint64) {
-        return _da[holder];
     }
 
     function tokensOf(address holder) external view returns (uint256[] memory) {
         return _owned[holder];
     }
 
-    function _aggiungi(address to, uint256 tokenId) private {
-        if (_balance[to] == 0) {
-            _holders.push(to);
-            _holderIndex[to] = _holders.length;
-        }
+    function _add(address to, uint256 tokenId) private {
         unchecked {
             _balance[to] += 1;
         }
         _owned[to].push(tokenId);
         _ownedIndex[tokenId] = _owned[to].length;
         _owner[tokenId] = to;
-        _da[to] = uint64(block.timestamp);
     }
 
-    function _togli(address from, uint256 tokenId) private {
-        uint256[] storage suoi = _owned[from];
+    function _remove(address from, uint256 tokenId) private {
+        uint256[] storage owned = _owned[from];
         uint256 i = _ownedIndex[tokenId] - 1;
-        uint256 ultimo = suoi[suoi.length - 1];
-        suoi[i] = ultimo;
-        _ownedIndex[ultimo] = i + 1;
-        suoi.pop();
+        uint256 lastToken = owned[owned.length - 1];
+        owned[i] = lastToken;
+        _ownedIndex[lastToken] = i + 1;
+        owned.pop();
         delete _ownedIndex[tokenId];
         unchecked {
             _balance[from] -= 1;
         }
-        if (_balance[from] == 0) {
-            uint256 h = _holderIndex[from] - 1;
-            address last = _holders[_holders.length - 1];
-            _holders[h] = last;
-            _holderIndex[last] = h + 1;
-            _holders.pop();
-            delete _holderIndex[from];
-            delete _da[from];
-        } else {
-            _da[from] = uint64(block.timestamp);
-        }
-    }
-
-    function winnerOf(uint256 tokenId) external view returns (address) {
-        if (_owner[tokenId] == address(0)) revert NoToken();
-        return drawing[tokenId].winner;
-    }
-
-    function opponentOf(uint256 tokenId) external view returns (address) {
-        if (_owner[tokenId] == address(0)) revert NoToken();
-        return drawing[tokenId].loser;
-    }
-
-    function mintedAt(uint256 tokenId) external view returns (uint64) {
-        if (_owner[tokenId] == address(0)) revert NoToken();
-        return drawing[tokenId].mintedAt;
     }
 
     function ownerOf(uint256 tokenId) public view returns (address holder) {
@@ -216,8 +155,8 @@ contract JungleMemento {
         }
 
         delete getApproved[tokenId];
-        _togli(from, tokenId);
-        _aggiungi(to, tokenId);
+        _remove(from, tokenId);
+        _add(to, tokenId);
         emit Transfer(from, to, tokenId);
     }
 
@@ -242,7 +181,7 @@ contract JungleMemento {
             '{"name":"',
             name,
             '","description":"Match tokens of Jungle didakoo on Polygon.',
-            " One token per game won on-chain; each token held is one ranking point.",
+            " One token per game won on-chain.",
             '","image":"data:image/svg+xml;base64,',
             _base64(bytes(emblem())),
             '"}'
@@ -309,9 +248,9 @@ contract JungleMemento {
         );
         out = string.concat(
             out,
-            ',{"trait_type":"Category","value":"',
+            ',{"trait_type":"Mode","value":"',
             _categoryName(d.category),
-            '"},{"display_type":"date","trait_type":"Minted","value":',
+            '"},{"display_type":"date","trait_type":"Date","value":',
             _u(d.mintedAt),
             "}"
         );
@@ -331,18 +270,13 @@ contract JungleMemento {
     }
 
     function _categoryName(uint8 category) private pure returns (string memory) {
-        if (category == 1) return "Bot";
-        if (category == 2) return "Arena";
-        if (category == 3) return "Private";
-        return "None";
+        return category == 2 ? "Arena" : "Private";
     }
 
     function _endName(uint8 endReason) private pure returns (string memory) {
         if (endReason == 1) return "Pyramid";
-        if (endReason == 2) return "Quit";
-        if (endReason == 3) return "Abandoned";
         if (endReason == 4) return "Wipeout";
-        return "None";
+        return "Resigned";
     }
 
     function _draw(Drawing memory d, uint128 board, bool ids) private view returns (string memory) {
@@ -489,13 +423,13 @@ contract JungleMemento {
     }
 
     function _page(Drawing memory d, bytes memory moves) private view returns (string memory) {
-        uint128 iniziale = uint128(JungleSeed.scacchieraIniziale(d.seed));
+        uint128 initial = uint128(JungleSeed.initialBoard(d.seed));
         return string.concat(
             '<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#000}'
             "svg{display:block;width:100%;height:100%}</style></head><body>",
-            _draw(d, iniziale, true),
+            _draw(d, initial, true),
             "<script>var S=",
-            _slots(iniziale),
+            _slots(initial),
             ",M=",
             _plies(moves),
             ",B=",
@@ -594,10 +528,6 @@ contract JungleMemento {
         if (id == 4) return "#ed5d80";
         if (id == 5) return "#000000";
         return "#fefffe";
-    }
-
-    function _i(int256 value) private pure returns (string memory) {
-        return value < 0 ? string.concat("-", _u(uint256(-value))) : _u(uint256(value));
     }
 
     function _hex(address who) private pure returns (string memory) {

@@ -25,10 +25,10 @@
                 Wrong account
             </span>
             <span v-else-if="fundsFinished && turn === myColor">
-                Funds finished
+                Match out of gas
             </span>
             <span v-else-if="(waitingDeadline && (!chain || turn === myColor)) || held">
-                Turn expired · waiting <Dots />
+                Turn expired, waiting <Dots />
             </span>
             <span v-else-if="waitingOpponent">
                 Opponent's move · {{ secondsLeft }}s
@@ -247,7 +247,7 @@ const waterCodes = helper.getWaterCodes();
 const backgroundColors = helper.getBoardColors();
 const WIN_REVEAL_MS = 1000;
 
-const BLOCKED_COLOR = "#a225f0";
+const BLOCKED_COLOR = "#ffffff";
 const COLOR_CURSOR = "#ffffff";
 const ARROWS = {
     ArrowUp: { dr: -1, dc: 0 },
@@ -293,9 +293,7 @@ function workerCount() {
     return Math.max(0, Math.min(requested, core - 1));
 }
 const BOT_WATCHDOG_MS = 30000;
-// The second watchdog of a page gives the workers up for good.
 const BOT_WATCHDOG_LIMIT = 2;
-// The probe at mount: a worker that does not answer a depth-1 search in time is mute.
 const BOT_PROBE_DEPTH = 1;
 const BOT_PROBE_MS = 4500;
 const PROBE_BOARD = Array.from({ length: 9 }, () =>
@@ -350,7 +348,6 @@ export default {
             type: Boolean,
             default: false,
         },
-        // Its Timeout on my turn, waiting for my clock.
         held: {
             type: Boolean,
             default: false,
@@ -448,7 +445,6 @@ export default {
         this.winner = null;
         this.fallback = this.game?.fallback === true;
         this.createWorker(this.fallback ? 0 : Math.min(1, workerCount()));
-        // The probe goes out before any request, so that its answer is the first.
         this.probing = this.online || !this.bots.length ? null : this.probeWorkers(this.bots);
         this.turnTimer = timer.createTurnTimer({
             onTick: () => {
@@ -579,7 +575,7 @@ export default {
                 const color = colorName(this.boardColors?.[side]);
                 return `${color} ${animal} exhausted`.toUpperCase();
             });
-            return lines.length ? lines.join(" \u00b7 ") : null;
+            return lines.length ? lines.join(", ") : null;
         },
     },
     watch: {
@@ -671,7 +667,6 @@ export default {
         realignDeadline(deadline) {
             if (this.winner || !this.turnDeadline || this.syncing || this.waitingDeadline) return;
             const grace = this.turn === this.itsColor && !this.chain ? timer.GRACE_SECONDS * 1000 : 0;
-            // A read only brings the deadline opened at changeTurn forward, never past it.
             this.turnDeadline = Math.min(this.turnDeadline, deadline + grace);
             this.armTimer();
         },
@@ -681,8 +676,6 @@ export default {
             if (this.turnDeadline && Date.now() >= this.turnDeadline) return this.expireTurn();
             this.armTimer();
         },
-        // Its log says its own clock still gives it ms on the turn: mine waits that long before
-        // declaring, at most one more turn in all.
         extendItsTurn(ms) {
             if (!this.online || this.winner || this.turn !== this.itsColor || this.waitingDeadline || !(ms > 0)) return false;
             const cap = (timer.TURN_SECONDS + timer.GRACE_SECONDS) * 1000;
@@ -735,7 +728,6 @@ export default {
             if (this.online) {
                 this.secondsLeft = 0;
                 this.waitingDeadline = true;
-                // The idle clock keeps running while its Timeout is awaited.
                 this.armTimer({ idleOnly: true });
                 return;
             }
@@ -877,7 +869,6 @@ export default {
                 this.giveUpWorkers();
                 return;
             }
-            // Workers gone during a wait are not opened again.
             if (!this.bots.length) return;
             const warmable = !this.winner && this.turn === this.myColor;
             if (this.slices === null && warmable) {
@@ -980,7 +971,6 @@ export default {
             }
             this.giveUpWorkers();
         },
-        // The workers are given up for the whole game: the snapshot remembers it.
         giveUpWorkers() {
             this.bots.forEach((w) => w.terminate());
             this.bots = [];
@@ -1331,7 +1321,6 @@ export default {
             }
         },
         saveState() {
-            // The offline snapshot is the bot game's: the online one lives in onlineCache.
             if (this.online) return;
             patchGame({
                 state: this.state,
@@ -1351,7 +1340,6 @@ export default {
             this.$emit("gameover", winner, reason);
             this.playAgain();
         },
-        // Offline the outcome is written before the pause of the den: a refresh in it finds the win.
         recordOutcome(winner) {
             this.saveState();
             patchGame({ finished: { winner, t: Date.now() } });
@@ -1362,7 +1350,6 @@ export default {
             if (checkmate) {
                 this.winner = checkmate;
                 const reason = engine.isWin(this.squares, checkmate) ? "den" : "wipeout";
-                // On the guest channel my own winning move waits for the opponent's word.
                 const confirm = this.online && !this.chain && this.turn === this.myColor && checkmate === this.myColor;
                 this.$emit("checkmate", checkmate, reason);
                 this.endGame();
@@ -1428,7 +1415,6 @@ export default {
             this.repetitions = engine.initialRepetitions();
         },
         restart(state) {
-            // A rebuild inside the reveal pause undoes the win it was about to show.
             clearTimeout(this.winReveal);
             this.winReveal = null;
             this.winner = null;

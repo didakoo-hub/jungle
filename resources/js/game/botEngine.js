@@ -9,7 +9,6 @@ const PARAMETERS = Object.freeze({
 });
 
 export const DEFAULT_LEVEL = 7;
-// The main-thread search when the workers are gone.
 export const BOT_FALLBACK_DEPTH = 2;
 
 export function levelsOf(version = VERSION_ENGINE) {
