@@ -3,7 +3,6 @@ export const PENALTY_SECONDS = 5;
 export const IDLE_MS = 10 * 60 * 1000;
 
 export const GRACE_SECONDS = 1;
-// The most my turn gives up to the delivery of the opponent's move.
 export const TRANSIT_CAP_S = 3;
 
 export function penalizedOf(penalized, color) {
@@ -25,8 +24,6 @@ export function openTurn(color, penalized, now = Date.now(), options) {
     return { turnDeadline: seconds ? now + seconds * 1000 : 0 };
 }
 
-// On the guest channel my clock starts from the signed `t` (whole seconds) of the opponent's move,
-// as its own does; the device clocks differ, hence the cap.
 export function transitOf(sentAtS, now = Date.now()) {
     if (!Number.isFinite(sentAtS)) return 0;
     return Math.min(Math.max(0, now - (sentAtS + 1) * 1000), TRANSIT_CAP_S * 1000);

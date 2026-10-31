@@ -11,7 +11,6 @@ const limited = (response, body) =>
 
 class RefusalOfNode extends Error {}
 
-// Answers about the call or the transaction; any other error is the endpoint's, and hands over.
 const REFUSAL_WORDS = /revert|nonce too|already known|known transaction|underpriced|insufficient funds|replacement transaction|intrinsic gas|gas required exceeds|exceeds block gas limit|fee cap|less than block base fee|invalid sender|invalid signature/i;
 const refusal = (error) => error?.code === 3 || REFUSAL_WORDS.test(error?.message ?? "");
 
@@ -53,8 +52,6 @@ export function networkRpc(urls, {
         active = next;
     };
 
-    // The round starts from one endpoint and keeps to it: a call in flight must not follow
-    // the active one that another call moves.
     const ask = async (method, params) => {
         if (list.length === 0) throw new Error("No endpoint");
         if (active !== 0 && now() - releasedHead >= comebackMs) active = 0;
@@ -70,8 +67,6 @@ export function networkRpc(urls, {
                 const { outcome, from } = k === 0 && readOnly(method)
                     ? await firstOf(i, method, params, asked)
                     : { outcome: await askA(list[i], method, params), from: i };
-                // A slow endpoint keeps its answer and hands over, only if it was the first asked
-                // and to one that has not failed recently.
                 moveTo(from === i && k === 0 && now() - began > slowMs ? healthyAfter(i) : from);
                 return outcome;
             } catch (e) {
@@ -80,20 +75,16 @@ export function networkRpc(urls, {
                 last = e;
             }
         }
-        // The whole round failed: the next call starts past the endpoint that just timed out.
         if (active === start && list.length > 1) moveTo((start + 1) % list.length);
         throw last;
     };
 
-    // Only the reads of the chain race: the nonce and the estimate of a node behind would send
-    // the transaction to it, and the transaction itself would be a refusal on the other node.
     const RACING = new Set([
         "eth_call", "eth_blockNumber", "eth_getBlockByNumber", "eth_getTransactionReceipt",
         "eth_getBalance", "eth_gasPrice", "eth_maxPriorityFeePerGas",
     ]);
     const readOnly = (method) => RACING.has(method);
 
-    // A read waiting past slowMs asks the next healthy endpoint too and keeps the first answer.
     const firstOf = (i, method, params, asked) => new Promise((resolve, reject) => {
         const j = healthyAfter(i);
         let pending = 1, settled = false, later = null;

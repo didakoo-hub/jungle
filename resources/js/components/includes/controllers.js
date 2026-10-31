@@ -91,7 +91,6 @@ function pollGamepads() {
 }
 
 export function installControllers() {
-    // Edge on Xbox: the controller reaches the Gamepad API.
     if ("gamepadInputEmulation" in navigator) navigator.gamepadInputEmulation = "gamepad";
     if (typeof navigator.getGamepads === "function") pollGamepads();
 }

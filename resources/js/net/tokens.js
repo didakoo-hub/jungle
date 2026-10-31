@@ -1,4 +1,5 @@
 import { Interface, isAddress } from "ethers";
+import { arenaCountsOf, tokenListsOf } from "./chain.js";
 import { ETHEREUM_NETWORK, readsNetwork } from "./rpc.js";
 
 export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
@@ -10,11 +11,11 @@ export const GROUPS = Object.freeze([
         network: "polygon",
         contract: "0x38dbFDf679445CB9cF423b106b5aB808c72192c5",
         token: [
-            { id: "1" },
-            { id: "5", colorId: 1 },
-            { id: "6", colorId: 3 },
-            { id: "7", colorId: 2 },
-            { id: "8", colorId: 4 },
+            { id: "1", badge: "dog" },
+            { id: "5", badge: "dog", colorId: 1 },
+            { id: "6", badge: "dog", colorId: 3 },
+            { id: "7", badge: "dog", colorId: 2 },
+            { id: "8", badge: "dog", colorId: 4 },
         ],
     },
     {
@@ -22,6 +23,7 @@ export const GROUPS = Object.freeze([
         chain: "ethereum",
         network: "ethereum",
         contract: "0x495f947276749Ce646f68AC8c248420045cb7b5e",
+        allColorsBadge: "mouse",
         token: [
             { id: "109412144875301169681210938441685435107180596113732411917774090355625099803288", badge: "leopard" },
             { id: "109412144875301169681210938441685435107180596113732411917774090356724611429064", badge: "tiger" },
@@ -49,6 +51,8 @@ export const GROUPS = Object.freeze([
         token: [{ badge: "monkey" }],
     },
 ].map(Object.freeze));
+
+export const TOKENS_NEEDED = Object.freeze({ leopard: 50, tiger: 150, lion: 300 });
 
 const ABI = new Interface([
     "function balanceOfBatch(address[] accounts, uint256[] ids) view returns (uint256[])",
@@ -112,40 +116,46 @@ export async function ownedOf(network, addresses, group) {
     return owned;
 }
 
+const known = new Map();
+
+export function stateKnown(address) {
+    return known.get(String(address ?? "").toLowerCase()) ?? null;
+}
+
 export async function stateOf(networks, addresses) {
     const list = normalize(addresses);
     const state = new Map(list.map((a) => [a, { badges: [], colors: [] }]));
     if (!list.length) return state;
 
-    const reads = await Promise.all(
-        GROUPS.map((group) => ownedOf(networks[group.network], list, group)));
+    const [reads, lists] = await Promise.all([
+        Promise.all(GROUPS.map((group) => ownedOf(networks[group.network], list, group))),
+        tokenListsOf(networks.polygon, list),
+    ]);
+    const holders = list.filter((address) =>
+        reads.some((owned) => owned.get(address)?.some((t) => TOKENS_NEEDED[t.badge])));
+    const counts = lists && holders.length
+        ? await arenaCountsOf(networks.polygon, new Map(holders.map((address) => [address, lists.get(address) ?? []])))
+        : null;
 
     GROUPS.forEach((group, i) => {
         for (const [address, itsMany] of reads[i]) {
             const entry = state.get(address);
+            const count = counts?.get(address) ?? 0;
             for (const { badge, colorId } of itsMany) {
-                if (badge && !entry.badges.includes(badge)) {
+                const needed = TOKENS_NEEDED[badge];
+                if (badge && !entry.badges.includes(badge) && (!needed || count >= needed)) {
                     entry.badges.push(badge);
                 }
                 if (colorId && !entry.colors.includes(colorId)) entry.colors.push(colorId);
             }
+            if (group.allColorsBadge && !entry.badges.includes(group.allColorsBadge)
+                && group.token.every((t) => !t.colorId || itsMany.includes(t))) {
+                entry.badges.push(group.allColorsBadge);
+            }
         }
     });
+    for (const [address, entry] of state) known.set(address, entry);
     return state;
-}
-
-export async function balances721(network, addresses, contract) {
-    const list = normalize(addresses);
-    if (!network || !list.length || !isAddress(contract)) return [];
-    const group = { type: "erc721", contract, token: [{}] };
-    try {
-        const { a, data } = callOf(list, group);
-        const balances = balancesFrom(await network.call(a, data), group);
-        if (balances.length !== list.length) return [];
-        return balances.map(Number);
-    } catch {
-        return [];
-    }
 }
 
 export function networks(wallet) {
@@ -158,6 +168,16 @@ export function networks(wallet) {
 export function choose(colors, rnd = Math.random) {
     if (!colors?.length) return null;
     return colors[Math.floor(rnd() * colors.length)];
+}
+
+const chosen = new Map();
+
+export function colorKept(address, colors, rnd = Math.random) {
+    const key = String(address ?? "").toLowerCase();
+    if (colors?.includes(chosen.get(key))) return chosen.get(key);
+    const color = choose(colors, rnd);
+    if (color) chosen.set(key, color);
+    return color;
 }
 
 function normalize(addresses) {

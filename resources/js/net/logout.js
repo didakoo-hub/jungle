@@ -2,9 +2,9 @@ import { clearWalletAddress, getWalletAddress } from "../game/identity.js";
 import { revokeAccounts, sameAddress } from "../game/wallet.js";
 import { SigningKey, formatEther } from "ethers";
 import { resetKeySession, keySessionSaved, addressOf } from "./keys.js";
-import { forgetAgreements, agreementsAlive, agreementsInSuspended } from "./pending.js";
+import { forgetSeat, seatRemembered, seatGone } from "./pending.js";
 import { readCache, ownerOf } from "./onlineCache.js";
-import { seatOf, returnFloat } from "./chain.js";
+import { seatOf, returnFloat, FLOAT_DUST_WEI } from "./chain.js";
 
 
 const FLOAT_RETURNS = "floatReturns";
@@ -19,19 +19,43 @@ export function setFloatNetwork(network, options = {}) {
     floatOptions = options;
 }
 
-// The key leaves at once; its float goes back in the background, and the key waits in
-// `floatReturns` until the receipt.
 export function clearSession({ to = null } = {}) {
     const key = keySessionSaved();
     const owner = keyOwner();
-    forgetAgreements();
+    forgetSeat();
     if (key && to && floatNetwork) keepForReturn(key.privateKey, owner ?? to);
     resetKeySession();
     if (!key || !to || !floatNetwork) return Promise.resolve(null);
     return deliverFloat(key.privateKey);
 }
 
-// At boot: the returns without a receipt yet.
+export async function settleFloat({ ended = false, rightNow = Date.now() } = {}) {
+    const key = keySessionSaved();
+    const owner = key ? keyOwner(rightNow) ?? getWalletAddress() : null;
+    if (!key || !owner || !floatNetwork) return null;
+    const session = addressOf(key);
+    const balance = await floatNetwork.balance(session).catch(() => null);
+    if (balance === null || balance < FLOAT_DUST_WEI) return null;
+    if (!ended) {
+        const seat = await seatOf(floatNetwork, owner);
+        if (!seat || sameAddress(seat.session, session)) return null;
+        const record = seatRemembered(session);
+        if (record && !seatGone(record, seat, rightNow)) return null;
+    }
+    if (keySessionSaved()?.privateKey !== key.privateKey) return null;
+    keepForReturn(key.privateKey, owner);
+    return deliverFloat(key.privateKey);
+}
+
+export function renewKeyReturning(rightNow = Date.now()) {
+    const key = keySessionSaved();
+    if (!key || !floatReturns().some((r) => r.key === key.privateKey)) return false;
+    const session = addressOf(key);
+    if (readCache(session, rightNow) || seatRemembered(session)) return false;
+    resetKeySession();
+    return true;
+}
+
 export function resumeFloatReturns() {
     if (!floatNetwork) return Promise.resolve([]);
     return Promise.all(floatReturns().map((r) => deliverFloat(r.key)));
@@ -73,10 +97,10 @@ async function deliverFloat(priv) {
     }
 }
 
-export function sessionBusy(rightNow = Date.now()) {
+export function sessionBusy() {
     const key = keySessionSaved();
     if (!key) return false;
-    return agreementsAlive(addressOf(key), rightNow).length > 0;
+    return seatRemembered(addressOf(key)) !== null;
 }
 
 export function gameInProgress(rightNow = Date.now()) {
@@ -86,27 +110,24 @@ export function gameInProgress(rightNow = Date.now()) {
     return !!cache && !cache.finished;
 }
 
-// The wallet the saved session key plays for, read from local data only: the cached game, then the agreements.
 export function keyOwner(rightNow = Date.now()) {
     const key = keySessionSaved();
     if (!key) return null;
     const session = addressOf(key);
     const cache = readCache(session, rightNow);
     if (cache) return ownerOf(cache);
-    const agreement = agreementsInSuspended(session)[0];
-    return agreement ? ownerOf(agreement) : null;
+    return seatRemembered(session)?.wallet ?? null;
 }
 
 export function leaveWarning(rightNow = Date.now()) {
     if (!getWalletAddress()) return null;
     if (gameInProgress(rightNow)) return "game";
-    return sessionBusy(rightNow) ? "start" : null;
+    return sessionBusy() ? "start" : null;
 }
 
 export function warningText(kind, stake = null, button = "DISCONNECT") {
-    const amount = stake ? `${stake} ` : "";
-    if (kind === "game") return `Game in progress. ${button} loses it, and the ${amount}stake.`;
-    return `Game about to start. ${button} loses the ${amount}stake.`;
+    if (kind === "game") return "Game in progress.";
+    return "Seat open: a game can start at any moment.";
 }
 
 export async function leaveStake(network) {
@@ -114,7 +135,7 @@ export async function leaveStake(network) {
     const key = keySessionSaved();
     if (!who || !key) return null;
     const seat = await seatOf(network, who);
-    if (!seat?.session || seat.session.toLowerCase() !== addressOf(key).toLowerCase()) return null;
+    if (!seat?.session || seat.gameId || seat.session.toLowerCase() !== addressOf(key).toLowerCase()) return null;
     return `${Number(formatEther(seat.escrow)).toFixed(2)} POL`;
 }
 
@@ -127,8 +148,6 @@ export function walletGone(accounts, locked = null, rightNow = Date.now()) {
     return leaveWarning(rightNow) === null;
 }
 
-// At boot, as on accountsChanged: the key's owner selected is adopted back, another account is adopted
-// while something is at stake. The key stays.
 export function adoptedAtBoot(accounts, rightNow = Date.now()) {
     const saved = getWalletAddress();
     const owner = keyOwner(rightNow);

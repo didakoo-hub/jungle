@@ -1,18 +1,14 @@
-import { Interface, Transaction, computeAddress, isAddress } from "ethers";
+import { AbiCoder, Interface, Transaction, computeAddress, isAddress, keccak256 } from "ethers";
 import {
-    CHAIN_ID, MATCH_ADDRESS, MEMENTO_ADDRESS, PASS_ADDRESS, STREAMR_REGISTRY,
+    CHAIN_ID, MATCH_ADDRESS, MEMENTO_ADDRESS, PASS_ADDRESS, PROTOCOL_V, STREAMR_REGISTRY,
 } from "./constants.js";
-import { decodeMoves } from "./messages.js";
+import { CATEGORY, decodeMoves } from "./messages.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-export const AGREEMENT_TUPLE =
-    "tuple(uint16,uint256,address,address,bytes32,bytes32,uint8,uint8,uint8,uint8,uint8,uint64)";
-
-export const OPEN_SIGNATURE = "jungledidakooOpen(address)";
+export const OPEN_SIGNATURE = "jungledidakooOpen(address,uint8,address,uint16)";
+export const JOIN_SIGNATURE = "jungledidakooJoin(address,address,bytes,uint16)";
 export const LEAVE_SIGNATURE = "jungledidakooLeave()";
-export const START_SIGNATURE = `jungledidakooStart(${AGREEMENT_TUPLE},bytes,bytes,bytes32)`;
-export const FORFEIT_SIGNATURE = `jungledidakooForfeit(${AGREEMENT_TUPLE})`;
 export const MOVE_SIGNATURE = "jungledidakooMove(uint256,uint32,uint8,uint8)";
 export const RESIGN_SIGNATURE = "jungledidakooResign(uint256)";
 export const CLOSE_SIGNATURE = "jungledidakooClose(uint256)";
@@ -21,63 +17,123 @@ const GAME_TUPLE =
     "tuple(address white,address black,address sessionWhite,address sessionBlack,"
     + "uint128 escrowWhite,uint128 escrowBlack,uint256 board,uint32 repetitions,uint8 turn,"
     + "uint8 penalized,uint32 seq,uint64 lastAt,uint8 repetitionLimit,uint8 colors,uint8 category,bytes32 seed,"
-    + "uint8 status,uint8 revealed,address winner,uint8 endReason,uint128 payout,bytes moves)";
+    + "uint8 status,uint64 seedBlock,address winner,uint8 endReason,bytes moves)";
 
 export const MATCH_ABI = new Interface([
     `function ${OPEN_SIGNATURE} payable`,
+    `function ${JOIN_SIGNATURE} payable`,
     `function ${LEAVE_SIGNATURE}`,
-    `function ${START_SIGNATURE}`,
     `function ${MOVE_SIGNATURE}`,
     `function ${RESIGN_SIGNATURE}`,
     `function ${CLOSE_SIGNATURE}`,
-    `function ${FORFEIT_SIGNATURE}`,
     `function gameOf(uint256) view returns (${GAME_TUPLE})`,
-    "function seats(address) view returns (address session, uint128 escrow, uint256 gameId)",
+    "function seats(address) view returns (address session, uint128 escrow, uint256 gameId, uint8 category, address invite, uint16 v)",
     "function sessionOf(address) view returns (address)",
-    "function STAKE() view returns (uint256)",
     "function TURN_SECONDS() view returns (uint64)",
     "function PENALTY_SECONDS() view returns (uint64)",
-    "function deadlineOf(uint256) view returns (uint64)",
     "function clockOf(uint256) view returns (uint8 turn, uint8 penalized, uint64 startedAt, uint64 deadline, uint8 skips)",
-    "function IDLE_SECONDS() view returns (uint64)",
     "event Started(uint256 indexed gameId, address indexed white, address indexed black, uint8 category)",
 ]);
 
 export const MEMENTO_ABI = new Interface([
-    "function balanceOf(address) view returns (uint256)",
-    "function ownerOf(uint256) view returns (address)",
-    "function winnerOf(uint256) view returns (address)",
-    "function opponentOf(uint256) view returns (address)",
-    "function mintedAt(uint256) view returns (uint64)",
     "function drawing(uint256) view returns (uint128 board,uint8 colors,uint8 category,uint8 endReason,"
     + "uint32 moveCount,uint64 mintedAt,address winner,address loser,bool winnerIsWhite,bytes32 seed)",
-    "function tokenURI(uint256) view returns (string)",
-    "function holdersCount() view returns (uint256)",
-    "function holdersPage(uint256 from, uint256 n) view returns (address[] chi, uint256[] saldi, uint64[] da)",
     "function tokensOf(address) view returns (uint256[])",
     "function totalMinted() view returns (uint256)",
     "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
 ]);
 
-export const HOLDERS_PAGE = 500;
-export const HOLDERS_PAGES = 20;
+export const MATCH_PROBES = 24;
 
-export async function holders(network, memento = MEMENTO_ADDRESS, { page = HOLDERS_PAGE } = {}) {
+export const MATCH_ROUNDS = 12;
+
+export const MATCHES_CHUNK = 100;
+
+export function gameIdOf(n, { chainId = CHAIN_ID, match = MATCH_ADDRESS } = {}) {
+    const encoded = AbiCoder.defaultAbiCoder().encode(["uint256", "address", "uint256"], [chainId, match, n]);
+    return BigInt(keccak256(encoded)).toString();
+}
+
+async function aggregate(network, calls) {
+    const data = await network.call(MULTICALL3, ABI_MULTICALL.encodeFunctionData("aggregate3", [calls]));
+    const [outcomes] = ABI_MULTICALL.decodeFunctionResult("aggregate3", data);
+    if (outcomes.length !== calls.length || outcomes.some((o) => !o.success)) throw new Error("multicall");
+    return outcomes.map((o) => o.returnData);
+}
+
+async function matchesExist(network, ns, match) {
+    const read = await aggregate(network, ns.map((n) =>
+        [match, true, MATCH_ABI.encodeFunctionData("gameOf", [gameIdOf(n, { match })])]));
+    return read.map((data) => Number(MATCH_ABI.decodeFunctionResult("gameOf", data)[0].status) !== 0);
+}
+
+function probesBetween(low, high) {
+    const inside = new Set();
+    for (let i = 1; i <= MATCH_PROBES; i++) inside.add(low + Math.round(((high - low) * i) / (MATCH_PROBES + 1)));
+    return [...inside].filter((n) => n > low && n < high);
+}
+
+export async function lastMatch(network, hint = 0, match = MATCH_ADDRESS) {
+    if (matchAbsent(match) || !network) return null;
+    const powers = (from) => Array.from({ length: MATCH_PROBES }, (_, i) => from + 2 ** i);
+    let low = 0;
+    let high = null;
+    let probes = Number.isSafeInteger(hint) && hint > 0 ? [hint, ...powers(hint)] : powers(0);
+    try {
+        for (let round = 0; round < MATCH_ROUNDS; round++) {
+            const found = await matchesExist(network, probes, match);
+            probes.forEach((n, i) => {
+                if (found[i]) low = Math.max(low, n);
+                else high = high === null ? n : Math.min(high, n);
+            });
+            if (high !== null && high <= low) return null;
+            if (high === low + 1) return low;
+            probes = high === null ? powers(low) : probesBetween(low, high);
+        }
+    } catch {
+    }
+    return null;
+}
+
+function drawingOf(gameId, data) {
+    const d = MEMENTO_ABI.decodeFunctionResult("drawing", data);
+    return {
+        gameId: gameId.toString(),
+        category: Number(d.category), endReason: Number(d.endReason),
+        moveCount: Number(d.moveCount), mintedAt: Number(d.mintedAt),
+        winner: d.winner, loser: d.loser, winnerIsWhite: d.winnerIsWhite,
+    };
+}
+
+export async function mintedMatches(network, from, want, {
+    chunk = MATCHES_CHUNK, match = MATCH_ADDRESS, memento = MEMENTO_ADDRESS,
+} = {}) {
+    if (matchAbsent(match) || !network || !isAddress(memento) || memento === ZERO) return null;
+    const lines = [];
+    let next = from;
+    try {
+        while (next > 0 && lines.length < want) {
+            const ns = Array.from({ length: Math.min(chunk, next) }, (_, i) => next - i);
+            const ids = ns.map((n) => gameIdOf(n, { match }));
+            const read = await aggregate(network, ids.map((id) =>
+                [memento, true, MEMENTO_ABI.encodeFunctionData("drawing", [id])]));
+            for (let i = 0; i < ns.length && lines.length < want; i++) {
+                next = ns[i] - 1;
+                const d = drawingOf(ids[i], read[i]);
+                if (d.mintedAt) lines.push(d);
+            }
+        }
+    } catch {
+        return null;
+    }
+    return { lines, next };
+}
+
+export async function mintedCount(network, memento = MEMENTO_ADDRESS) {
     if (!network || !isAddress(memento) || memento === ZERO) return null;
     try {
-        const count = await network.call(memento, MEMENTO_ABI.encodeFunctionData("holdersCount", []));
-        const howMany = Math.min(Number(MEMENTO_ABI.decodeFunctionResult("holdersCount", count)[0]), page * HOLDERS_PAGES);
-        const out = [];
-        for (let from = 0; from < howMany; from += page) {
-            const data = await network.call(memento, MEMENTO_ABI.encodeFunctionData("holdersPage", [from, page]));
-            const [who, balances, when] = MEMENTO_ABI.decodeFunctionResult("holdersPage", data);
-            if (!who.length) break;
-            who.forEach((a, i) => {
-                const n = Number(balances[i]);
-                if (n > 0) out.push({ address: a, wins: n, from: Number(when[i]) });
-            });
-        }
-        return out;
+        const data = await network.call(memento, MEMENTO_ABI.encodeFunctionData("totalMinted", []));
+        return Number(MEMENTO_ABI.decodeFunctionResult("totalMinted", data)[0]);
     } catch {
         return null;
     }
@@ -93,6 +149,33 @@ export async function tokensOf(network, address, memento = MEMENTO_ADDRESS) {
     }
 }
 
+export async function tokenListsOf(network, addresses, memento = MEMENTO_ADDRESS) {
+    if (!network || !addresses.length || !isAddress(memento) || memento === ZERO) return null;
+    try {
+        const read = await aggregate(network, addresses.map((address) =>
+            [memento, true, MEMENTO_ABI.encodeFunctionData("tokensOf", [address])]));
+        return new Map(addresses.map((address, i) =>
+            [address, MEMENTO_ABI.decodeFunctionResult("tokensOf", read[i])[0].map((t) => t.toString())]));
+    } catch {
+        return null;
+    }
+}
+
+export async function arenaCountsOf(network, lists, { chunk = MATCHES_CHUNK, memento = MEMENTO_ADDRESS } = {}) {
+    if (!network || !isAddress(memento) || memento === ZERO) return null;
+    const ids = [...lists.values()].flat();
+    const parts = [];
+    for (let i = 0; i < ids.length; i += chunk) parts.push(ids.slice(i, i + chunk));
+    try {
+        const read = (await Promise.all(parts.map((part) => aggregate(network, part.map((id) =>
+            [memento, true, MEMENTO_ABI.encodeFunctionData("drawing", [id])]))))).flat();
+        const arena = new Set(ids.filter((id, i) => drawingOf(id, read[i]).category === CATEGORY.ARENA));
+        return new Map([...lists].map(([address, own]) => [address, own.filter((id) => arena.has(id)).length]));
+    } catch {
+        return null;
+    }
+}
+
 export const ABI_PASS = new Interface([
     "function balanceOf(address) view returns (uint256)",
     "function collection() view returns (address)",
@@ -100,9 +183,9 @@ export const ABI_PASS = new Interface([
 
 export const STAKE_WEI = 5n * 10n ** 18n;
 
-export const CHAIN_REVEAL_S = 30;
+export const CHAIN_START_S = 5;
 
-export const CHAIN_AGREEMENT_S = 120;
+export const SEED_BLOCKS = 256;
 
 export const CHAIN_TURN_S = 20;
 
@@ -123,7 +206,7 @@ export function decodeClock(data) {
 }
 
 export function clockInconsistent(g, clock, timeBlock) {
-    if (!(clock.lastAt <= timeBlock)) return true;
+    if (!(clock.lastAt <= timeBlock + (g.seq === 0 ? CHAIN_START_S : 0))) return true;
     if (clock.turn !== (g.turn + clock.skips) % 2) return true;
     if (clock.skips === 0) return clock.lastAt !== g.lastAt || clock.penalized !== g.penalized;
     return clock.lastAt <= g.lastAt;
@@ -139,29 +222,30 @@ export function withClock(g, clock) {
     return { ...g, ply, turn: clock.turn, penalized: clock.penalized, lastAt: clock.lastAt };
 }
 
-export const STATUS = Object.freeze({ NO: 0, IN_PROGRESS: 1, FINISHED: 2, REVEALING: 3 });
+export const STATUS = Object.freeze({ NO: 0, IN_PROGRESS: 1, FINISHED: 2 });
 
-export function calldataOpening(session) {
-    return MATCH_ABI.encodeFunctionData(OPEN_SIGNATURE, [session]);
+const NO_INVITE = ZERO;
+
+export function calldataOpening(session, category, invite = NO_INVITE, v = PROTOCOL_V) {
+    return MATCH_ABI.encodeFunctionData(OPEN_SIGNATURE, [session, category, invite, v]);
+}
+
+export function calldataJoining(host, session, signature, v = PROTOCOL_V) {
+    return MATCH_ABI.encodeFunctionData(JOIN_SIGNATURE, [host, session, signature, v]);
+}
+
+export function inviteDigest(host, guest, { chainId = CHAIN_ID, match = MATCH_ADDRESS } = {}) {
+    return keccak256(AbiCoder.defaultAbiCoder().encode(
+        ["uint256", "address", "address", "address"], [chainId, match, host, guest],
+    ));
+}
+
+export function inviteSignature(inviteKey, host, guest, options) {
+    return inviteKey.sign(inviteDigest(host, guest, options)).serialized;
 }
 
 export function calldataExit() {
     return MATCH_ABI.encodeFunctionData(LEAVE_SIGNATURE, []);
-}
-
-export function valuesAgreement(m) {
-    return [
-        m.v, m.gameId, m.a, m.b, m.commitA, m.commitB,
-        m.category, m.repetitionLimit, m.turnS, m.penaltyS, m.graceS, m.t,
-    ];
-}
-
-export function calldataStartup(agreement, signatureA, signatureB, seed) {
-    return MATCH_ABI.encodeFunctionData(START_SIGNATURE, [valuesAgreement(agreement), signatureA ?? "0x", signatureB ?? "0x", seed]);
-}
-
-export function calldataForfeit(agreement) {
-    return MATCH_ABI.encodeFunctionData(FORFEIT_SIGNATURE, [valuesAgreement(agreement)]);
 }
 
 export function calldataMove(gameId, seq, from, a) {
@@ -180,16 +264,6 @@ export function matchAbsent(match = MATCH_ADDRESS) {
     return !isAddress(match) || match === ZERO;
 }
 
-export async function matchOf(network, gameId, match = MATCH_ADDRESS) {
-    if (matchAbsent(match) || !network) return null;
-    try {
-        const data = await network.call(match, MATCH_ABI.encodeFunctionData("gameOf", [gameId]));
-        return decodeMatch(data);
-    } catch {
-        return null;
-    }
-}
-
 function decodeMatch(data) {
     const [g] = MATCH_ABI.decodeFunctionResult("gameOf", data);
     return {
@@ -200,8 +274,7 @@ function decodeMatch(data) {
         turn: Number(g.turn), penalized: Number(g.penalized), seq: Number(g.seq), lastAt: Number(g.lastAt),
         repetitionLimit: Number(g.repetitionLimit), colors: Number(g.colors),
         category: Number(g.category), seed: g.seed,
-        status: Number(g.status), revealed: Number(g.revealed), winner: g.winner, endReason: Number(g.endReason),
-        payout: g.payout,
+        status: Number(g.status), seedBlock: Number(g.seedBlock), winner: g.winner, endReason: Number(g.endReason),
         moves: g.moves,
         ply: decodeMoves(g.moves),
     };
@@ -212,6 +285,7 @@ export const ABI_MULTICALL = new Interface([
     "function aggregate3((address target, bool allowFailure, bytes callData)[] calls)"
         + " view returns ((bool success, bytes returnData)[])",
     "function getCurrentBlockTimestamp() view returns (uint256)",
+    "function getBlockNumber() view returns (uint256)",
 ]);
 
 export const CLOCK_SKEW_S = 60;
@@ -220,8 +294,6 @@ export function clockFarOff(timeBlock, nowMs = Date.now(), deviation = CLOCK_SKE
     return !Number.isFinite(timeBlock) || Math.abs(nowMs / 1000 - timeBlock) > deviation;
 }
 
-// Polygon makes a block every ~2 s: a head that stops moving for longer is a node left behind,
-// before clockFarOff sees it. One record per network, shared by all its readers.
 export const HEAD_STALLED_S = 8;
 const heads = new WeakMap();
 export function headStalled(network, timeBlock, nowMs = Date.now()) {
@@ -233,9 +305,6 @@ export function headStalled(network, timeBlock, nowMs = Date.now()) {
     return true;
 }
 
-// The block time against the device clock, the largest seen from any endpoint in the last
-// HEAD_WINDOW_S: a read further behind than HEAD_BEHIND_S is a node behind the head. The record
-// is the caller's, one per director.
 export const HEAD_WINDOW_S = 90;
 export const HEAD_BEHIND_S = MOVE_MARGIN_S + 2;
 export function headOffset(record, timeBlock, nowMs = Date.now()) {
@@ -252,7 +321,6 @@ export function behindHead(record, timeBlock, nowMs = Date.now(), behindS = HEAD
 
 export const ENDPOINTS_AGREE_S = 10;
 
-// The device clock, not the endpoint, is off: two endpoints agree with each other and both are far from it.
 export async function deviceClockWrong(network, { now = Date.now, deviation = CLOCK_SKEW_S, agree = ENDPOINTS_AGREE_S } = {}) {
     try {
         const another = network?.elsewhere?.();
@@ -288,49 +356,33 @@ export async function chainRead(network, gameId, match = MATCH_ADDRESS) {
             [match, false, MATCH_ABI.encodeFunctionData("gameOf", [gameId])],
             [match, false, MATCH_ABI.encodeFunctionData("clockOf", [gameId])],
             [MULTICALL3, false, ABI_MULTICALL.encodeFunctionData("getCurrentBlockTimestamp", [])],
+            [MULTICALL3, true, ABI_MULTICALL.encodeFunctionData("getBlockNumber", [])],
         ]]));
-        const [[game, clock, now]] = ABI_MULTICALL.decodeFunctionResult("aggregate3", data);
+        const [[game, clock, now, number]] = ABI_MULTICALL.decodeFunctionResult("aggregate3", data);
         if (!game.success || !clock.success || !now.success) return null;
         return {
             match: decodeMatch(game.returnData),
             clock: decodeClock(clock.returnData),
             timeBlock: Number(ABI_MULTICALL.decodeFunctionResult("getCurrentBlockTimestamp", now.returnData)[0]),
+            blockNumber: number?.success ? Number(ABI_MULTICALL.decodeFunctionResult("getBlockNumber", number.returnData)[0]) : null,
         };
     } catch {
         return null;
     }
 }
 
-export async function readsMatches(network, gameIds, match = MATCH_ADDRESS) {
-    if (matchAbsent(match) || !network || !gameIds.length) return null;
-    try {
-        const data = await network.call(MULTICALL3, ABI_MULTICALL.encodeFunctionData("aggregate3", [[
-            ...gameIds.map((id) => [match, true, MATCH_ABI.encodeFunctionData("gameOf", [id])]),
-            [MULTICALL3, false, ABI_MULTICALL.encodeFunctionData("getCurrentBlockTimestamp", [])],
-        ]]));
-        const [outcomes] = ABI_MULTICALL.decodeFunctionResult("aggregate3", data);
-        const now = outcomes[outcomes.length - 1];
-        return {
-            matches: outcomes.slice(0, -1).map((e) => (e.success ? decodeMatch(e.returnData) : null)),
-            timeBlock: now.success
-                ? Number(ABI_MULTICALL.decodeFunctionResult("getCurrentBlockTimestamp", now.returnData)[0])
-                : null,
-        };
-    } catch {
-        return null;
-    }
-}
-
-export async function matchesOf(network, gameIds, match = MATCH_ADDRESS) {
-    return (await readsMatches(network, gameIds, match))?.matches ?? null;
+function decodeSeat(data) {
+    const [session, escrow, gameId, category, invite, v] = MATCH_ABI.decodeFunctionResult("seats", data);
+    return {
+        session: session === ZERO ? null : session, escrow, gameId: gameId === 0n ? null : gameId.toString(),
+        category: Number(category), invite: invite === ZERO ? null : invite, v: Number(v),
+    };
 }
 
 export async function seatOf(network, wallet, match = MATCH_ADDRESS) {
     if (matchAbsent(match) || !network || !isAddress(wallet)) return null;
     try {
-        const data = await network.call(match, MATCH_ABI.encodeFunctionData("seats", [wallet]));
-        const [session, escrow, gameId] = MATCH_ABI.decodeFunctionResult("seats", data);
-        return { session: session === ZERO ? null : session, escrow, gameId: gameId === 0n ? null : gameId.toString() };
+        return decodeSeat(await network.call(match, MATCH_ABI.encodeFunctionData("seats", [wallet])));
     } catch {
         return null;
     }
@@ -342,23 +394,6 @@ export async function sessionOf(network, session, match = MATCH_ADDRESS) {
         const data = await network.call(match, MATCH_ABI.encodeFunctionData("sessionOf", [session]));
         const [who] = MATCH_ABI.decodeFunctionResult("sessionOf", data);
         return who === ZERO ? null : who;
-    } catch {
-        return null;
-    }
-}
-
-export async function seatsOf(network, wallets, match = MATCH_ADDRESS) {
-    if (matchAbsent(match) || !network || !wallets.length) return null;
-    try {
-        const data = await network.call(MULTICALL3, ABI_MULTICALL.encodeFunctionData("aggregate3", [
-            wallets.map((w) => [match, true, MATCH_ABI.encodeFunctionData("seats", [w])]),
-        ]));
-        const [outcomes] = ABI_MULTICALL.decodeFunctionResult("aggregate3", data);
-        return outcomes.map((e) => {
-            if (!e.success) return null;
-            const [session, escrow, gameId] = MATCH_ABI.decodeFunctionResult("seats", e.returnData);
-            return { session: session === ZERO ? null : session, escrow, gameId: gameId === 0n ? null : gameId.toString() };
-        });
     } catch {
         return null;
     }
@@ -391,7 +426,6 @@ export async function hasPermission(network, streamId, who, permission, registry
     }
 }
 
-// Three answers: true, false for a zero that was read, null for a read that failed.
 export async function hasThePass(network, wallet, pass = PASS_ADDRESS) {
     if (!network || !isAddress(wallet) || !isAddress(pass) || pass === ZERO) return false;
     try {
@@ -405,14 +439,7 @@ export async function hasThePass(network, wallet, pass = PASS_ADDRESS) {
 export async function mementoOf(network, tokenId, memento = MEMENTO_ADDRESS) {
     if (!network || !isAddress(memento) || memento === ZERO) return null;
     try {
-        const data = await network.call(memento, MEMENTO_ABI.encodeFunctionData("drawing", [tokenId]));
-        const d = MEMENTO_ABI.decodeFunctionResult("drawing", data);
-        return {
-            gameId: tokenId.toString(),
-            category: Number(d.category), endReason: Number(d.endReason),
-            moveCount: Number(d.moveCount), mintedAt: Number(d.mintedAt),
-            winner: d.winner, loser: d.loser, winnerIsWhite: d.winnerIsWhite,
-        };
+        return drawingOf(tokenId, await network.call(memento, MEMENTO_ABI.encodeFunctionData("drawing", [tokenId])));
     } catch {
         return null;
     }
@@ -423,16 +450,11 @@ export const MAX_TIP = 60_000_000_000n;
 export const BASE_CAP = 2n;
 export const BASE_SPREAD = 3n;
 export const REPLACEMENT_BUMP = 110n;
-export const GAS_RESERVE = 400_000n;
-export const STARTUP_GAS = 600_000n;
+export const GAS_RESERVE = 1_200_000n;
 export const FUNDS_FINISHED = "FUNDS";
 
 export function fundsFinished(e) {
     return e?.code === FUNDS_FINISHED || /insufficient funds/i.test(e?.message ?? "");
-}
-
-export function reverted(e) {
-    return e?.code === 3 || /revert/i.test(e?.message ?? "");
 }
 
 export const NODE_REFUSAL = "The node refused the transaction.";
@@ -469,7 +491,6 @@ async function pricesMove(network) {
         const cap = maxOf((await network.gas()) * BASE_CAP, tip);
         return { tip, cap, floor: cap, spread: cap };
     }
-    // cap from the higher base fee, floor (the funds check) from the lower, spread for returnFloat.
     return {
         tip, cap: capOf(high), floor: capOf(low > 0n ? low : high),
         spread: capOf(low > 0n ? tight(high, low, low * BASE_SPREAD) : high),
@@ -488,16 +509,12 @@ export function createTransmitter(network, key, { a = MATCH_ADDRESS, chainId = C
         return nonce;
     }
 
-    // A stuck endpoint counts from an old block: after "nonce too low" the highest count wins.
-    // Mined only: a pending count may hold a transaction that never lands, and leave a gap.
     async function freshCount() {
         const others = (network.others?.() ?? []).filter((r) => typeof r.count === "function");
         const counts = await Promise.all([network.count(sender, "latest"), ...others.map((r) => r.count(sender, "latest").catch(() => -1))]);
         return Math.max(...counts);
     }
 
-    // A forgotten transaction may still be mined later, in another turn: its nonce is taken by an
-    // empty self-transfer, priced over the replacement threshold, before anything else is sent.
     async function occupyForgotten(prices) {
         const balance = typeof network.balance === "function" ? await network.balance(sender).catch(() => null) : null;
         const affordable = balance !== null && balance / TRANSFER_GAS < prices.cap ? balance / TRANSFER_GAS : prices.cap;
@@ -527,22 +544,16 @@ export function createTransmitter(network, key, { a = MATCH_ADDRESS, chainId = C
         }
     }
 
-    // With refuseOnRevert the contract's revert on the estimate stops the transaction: its calldata
-    // never reaches the mempool.
-    async function dispatch(data, { gasMinimum = 0n, refuseOnRevert = false } = {}) {
+    async function dispatch(data) {
         const request = { from: sender, to: a, data: data, value: "0x0" };
         if (forgotten.size > 0) await occupyForgotten(await pricesMove(network));
         let [prices, estimate, balance, n] = await Promise.all([
             pricesMove(network),
-            network.estimate(request).catch((e) => {
-                if (refuseOnRevert && reverted(e)) throw e;
-                return GAS_RESERVE;
-            }),
+            network.estimate(request).catch(() => GAS_RESERVE),
             typeof network.balance === "function" ? network.balance(sender).catch(() => null) : null,
             nextNonce(),
         ]);
-        const estimated = estimate * 120n / 100n;
-        const limit = estimated > gasMinimum ? estimated : gasMinimum;
+        const limit = estimate * 120n / 100n;
         if (balance !== null && balance < prices.floor * limit) {
             throw Object.assign(new Error("funds finished"), { code: FUNDS_FINISHED });
         }
@@ -573,8 +584,8 @@ export function createTransmitter(network, key, { a = MATCH_ADDRESS, chainId = C
     return {
         sender,
 
-        send(data, options) {
-            const turn = line.then(() => dispatch(data, options));
+        send(data) {
+            const turn = line.then(() => dispatch(data));
             line = turn.catch(() => {});
             return turn;
         },
@@ -587,8 +598,6 @@ export function createTransmitter(network, key, { a = MATCH_ADDRESS, chainId = C
             forgotten.set(tx.nonce, { cap: tx.maxFeePerGas, tip: tx.maxPriorityFeePerGas });
         },
 
-        // Same nonce and calldata over the replacement threshold, the tip at least MAX_TIP and the
-        // cap at least the current price, within the balance: null when nothing was taken.
         async bump(hash) {
             const rawOne = rawOnes.get(hash);
             if (!rawOne) return null;
@@ -634,8 +643,6 @@ export function createTransmitter(network, key, { a = MATCH_ADDRESS, chainId = C
 export const TRANSFER_GAS = 21_000n;
 export const FLOAT_DUST_WEI = 10n ** 16n;
 
-// A stuck endpoint answers from an old block: the highest count and the lowest balance win. Sent on
-// every endpoint; `landed` is the receipt (awaitReceipt).
 export async function returnFloat(network, key, wallet, { chainId = CHAIN_ID, dust = FLOAT_DUST_WEI, cap = RECEIPT_CAP_MS } = {}) {
     if (!isAddress(wallet)) return { hash: null, amount: 0n, landed: true };
     const sender = computeAddress(key.publicKey);
@@ -703,18 +710,6 @@ export async function awaitReceipt(network, hash, {
     }
 }
 
-// Without a receipt the same bytes go to the other endpoints, and the receipt is awaited there.
-export async function awaitAnywhere(reads, transmitter, hash, cap) {
-    const gone = await awaitReceipt(reads, hash, { cap });
-    if (gone !== null) return gone;
-    const another = reads.elsewhere?.();
-    if (another && typeof transmitter.repeat === "function") await transmitter.repeat(hash, another);
-    return awaitReceipt(another?.receipt ? another : reads, hash, { cap });
-}
-
-// Without a receipt the last version goes again at a higher price every `every` ms (bump); the
-// receipt is looked for on every version, on the active endpoint and on another one. `hash` is
-// the version to forget when nothing landed.
 export async function awaitBumping(reads, transmitter, hash, cap, {
     every = cap / 4,
     heartbeat = RECEIPT_HEARTBEAT_MS,
@@ -747,26 +742,22 @@ export const REASONS = Object.freeze({
     CONTRACT: "contract missing",
     NETWORK: "wrong network",
     SENDER: "sender missing",
-    PASS: "pass missing",
     SESSION: "session of another wallet",
     CLOCK: "device clock wrong",
     CHAIN: "chain unreadable",
 });
 
-export async function openSeat(network, reads, { from, session, match = MATCH_ADDRESS, pass = PASS_ADDRESS }) {
+export async function openSeat(network, reads, {
+    from, session, category, invite = NO_INVITE, host = null, signature = null, match = MATCH_ADDRESS,
+}) {
     if (matchAbsent(match)) return { ok: false, reason: REASONS.CONTRACT };
     if (!isAddress(from) || !isAddress(session)) return { ok: false, reason: REASONS.SENDER };
     const chain = await network.network();
     if (chain !== CHAIN_ID) return { ok: false, reason: REASONS.NETWORK, awaited: CHAIN_ID, found: chain };
-    const held = await hasThePass(reads, from, pass);
-    if (held === false) return { ok: false, reason: REASONS.PASS };
-    if (held === null) return { ok: false, reason: REASONS.CHAIN };
     const who = await sessionOf(reads, session, match);
     if (who && who.toLowerCase() !== from.toLowerCase()) return { ok: false, reason: REASONS.SESSION };
-    return {
-        ok: true,
-        hash: await network.send(from, match, calldataOpening(session), "0x" + STAKE_WEI.toString(16), CHAIN_ID),
-    };
+    const data = host ? calldataJoining(host, session, signature) : calldataOpening(session, category, invite);
+    return { ok: true, hash: await network.send(from, match, data, "0x" + STAKE_WEI.toString(16), CHAIN_ID) };
 }
 
 export const TOPUP_WEI = 10n ** 18n;

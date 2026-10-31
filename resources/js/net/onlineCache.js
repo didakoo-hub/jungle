@@ -28,7 +28,6 @@ export function readCache(session, now = Date.now()) {
     return entry;
 }
 
-// The wallet that plays the cached game: the side that is not the opponent.
 export function ownerOf(entry) {
     if (!entry?.match || !entry.side?.wallet) return null;
     return sameAddress(entry.match.a, entry.side.wallet) ? entry.match.b : entry.match.a;

@@ -1,17 +1,22 @@
 <template>
     <div class="shell">
         <router-view :key="keyView"></router-view>
-        <div v-if="popup" class="block-popup"></div>
+        <div v-if="popup" class="block-popup"><WalletWait v-if="popupElsewhere" elsewhere /></div>
     </div>
 </template>
 <script>
 import { inviteOf } from "./components/includes/invite.js";
+import WalletWait from "./components/pages/WalletWait.vue";
 
 export default {
     name: "App",
+    components: { WalletWait },
     computed: {
         popup() {
             return this.$store.state.popup;
+        },
+        popupElsewhere() {
+            return this.$store.state.popupElsewhere;
         },
         keyView() {
             return this.$route.path === "/online" ? inviteOf(this.$route.query) : "";

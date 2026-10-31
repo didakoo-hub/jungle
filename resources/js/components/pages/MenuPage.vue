@@ -1,7 +1,7 @@
 <template>
     <div id="page1" class="centerer flex-column align-items-center">
         <div class="menu-actions justify-content-center align-content-center d-flex">
-            <div class="bt" v-show="!toggleModal">
+            <div class="bt" v-show="!toggleModal && !inFarcaster">
                 <a
                     type="button"
                     class="pointer"
@@ -29,7 +29,7 @@
                     </div>
                 </a>
                 <div
-                    @click="navigateToRank()"
+                    @click="navigateToMatches()"
                     class="pointer"
                     ref="action1"
                 >
@@ -74,7 +74,9 @@
                 @close="closeModal"
                 @notify="showNotify"
                 @profile="goOnProfile"
+                @farcaster="inFarcaster = true"
             />
+            <Modal :open="inFarcaster" :text="OPEN_IN_FARCASTER" />
             <Notify :text="notifyText" :type="notifyType" />
         </div>
     </div>
@@ -85,8 +87,10 @@ import { isWalletAlias, abbreviate } from "../../game/identity.js";
 import Icon from "../includes/Icon.vue";
 import Notify from "../includes/Notification.vue";
 import ConnectWalletModal from "../Modal/ConnectWalletModal.vue";
+import Modal from "../Modal/Modal.vue";
 import { barTargets } from "../includes/bar.js";
 import { onMouseMove } from "../includes/mouse.js";
+import { OPEN_IN_FARCASTER } from "../includes/walletNotes.js";
 import elephant6 from "../../../images/board/animals/elephant_6.svg";
 
 const NOTIFY_DURATION_MS = 3000;
@@ -100,6 +104,8 @@ export default {
             currentIndex: departure(),
             keyboardMode: false,
             toggleModal: false,
+            inFarcaster: false,
+            OPEN_IN_FARCASTER,
             notifyText: null,
             notifyType: "info",
             notifyHandle: null,
@@ -110,6 +116,7 @@ export default {
         Icon,
         Notify,
         ConnectWalletModal,
+        Modal,
     },
     watch: {
         barSelectedOne(name) {
@@ -167,6 +174,7 @@ export default {
             });
         },
         handleKeyboard(event) {
+            if (this.inFarcaster) return;
             if (this.toggleModal) {
                 if (event.key === "Escape") this.closeModal();
                 return;
@@ -207,8 +215,8 @@ export default {
             }
         },
 
-        navigateToRank() {
-            this.$router.push({ path: "ranking" });
+        navigateToMatches() {
+            this.$router.push({ path: "/" });
         },
         navigateToInfo() {
             this.$router.push({ path: "info" });

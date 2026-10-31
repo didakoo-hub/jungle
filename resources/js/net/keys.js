@@ -38,7 +38,6 @@ export function resetKeySession() {
     warnKey();
 }
 
-// Born or gone; a key created in another tab does not warn.
 export function onKeySession(cb) {
     listenersKey.add(cb);
     return () => listenersKey.delete(cb);
@@ -48,7 +47,6 @@ function warnKey() {
     for (const cb of listenersKey) cb();
 }
 
-// Another tab may have taken the wallet or the key away.
 export function stillTheSigner(me) {
     if (me?.type !== "wallet") return true;
     return String(getWalletAddress() ?? "").toLowerCase() === String(me.wallet).toLowerCase()

@@ -5,20 +5,22 @@
                 <div class="d-flex container-sm align-items-center justify-content-between flex-wrap flex-row">
                     <img class="modal_logo" :src="ddd" alt="didakoo">
                     <span style='font-size:13px;' class="version_sign"> Jungle </span>
-                    <span style='font-size:13px;' class="version_sign"> v 1.2</span>
+                    <span style='font-size:13px;' class="version_sign"> v {{ version }}</span>
                 </div>
                 <div v-if="checkGameStatus" class="console-screen d-flex justify-content-center align-items-center">
                     <p  class="main_message" :class="{ centered: !!message }">
                         <span :class="klassText" :style="{fontSize: gameFinished ? '25px' : '16px', color: finishedText ?? finishedText}">
                             <template v-if="finishedText"><span v-if="outcomeMarks.before" class="blink-text">{{ outcomeMarks.before }}</span>{{ mainMessage }}<span class="blink-text">{{ outcomeMarks.after }}</span></template>
+                            <template v-else-if="textAround">{{ textAround[0] }}<span class="profile-tag">{{ textAround[1] }}</span>{{ textAround[2] }}</template>
                             <template v-else-if="mainMessage">{{ mainMessage }}</template>
-                            <template v-else-if="aliasWallet"><span style="color: #46e546;">{{ aliasWallet }}</span><span v-if="pass && !withoutChoice" style="white-space: nowrap; color: #46e546;">{{ " (PASS OWNER)" }}</span></template>
+                            <template v-else-if="aliasWallet"><span class="profile-tag" style="color: white;">{{ aliasWallet }}</span><template v-if="pass && !withoutChoice">{{ " " }}<span style="white-space: nowrap; color: #46e546;">(PASS HOLDER)</span></template></template>
                             <span v-else-if="blinkingNotice" class="blink-text" style="color: red;">{{ notice }}</span>
-                            <template v-else><span style="color: white;">GUEST PLAYER</span><span v-if="!withoutChoice">, choose a mode.</span></template>
+                            <template v-else><span style="color: white;">GUEST PLAYER</span><span v-if="!withoutChoice" class="choice-line">Choose a game mode.</span></template>
                         </span>
-                        <span v-if="highlightedText" class="highlighted">{{ highlightedText }}</span>
+                        <a v-if="highlightedText && highlightedHref" class="highlighted" :href="highlightedHref" target="_blank" rel="noopener noreferrer">{{ highlightedText }}</a>
+                        <span v-else-if="highlightedText" class="highlighted">{{ highlightedText }}</span>
                         <span v-if="inlineNote" class="inline-note">({{ inlineNote }})</span>
-                        <span v-if="payout" class="note-payout" :class="{ loss: payout.startsWith('-') }">{{ payout }}</span>
+                        <span v-if="payout" class="note-payout">{{ payout }}</span>
                         <span v-if="note" class="outcome-note" :class="finishedText ? 'blink-text' : ''" :style="{color: finishedText ?? finishedText}">{{ note }}</span>
                         <span v-if="noteChain" class="note-chain" :class="{ halt: chainDown, 'blink-text': blinkingChain }">{{ noteChain }}</span>
                         <span v-if="noticeLine" class="notice" :class="klassNotice">{{ textNotice }}<template v-if="noticeAnimated">{{ " " }}<Dots /></template></span>
@@ -32,10 +34,10 @@
                 </div>
                 <div v-if="pauseMode" class="console-screen d-flex justify-content-center align-items-center">
                     <p  class="main_message">
-                        <span v-if="opponent" class="challengers">{{ whoAmI }} vs {{ opponent }}</span>
+                        <span v-if="opponent" class="challengers"><span v-for="(side, i) in sides" :key="i">{{ i ? " vs " : "" }}<template v-if="side.head"><span class="profile-tag">{{ side.head }}</span>{{ side.tail }}</template><template v-else>{{ side.name }}</template></span></span>
                         <span v-else-if="header" class="challengers">{{ header }}</span>
-                        <span v-if="stake" class="stake">Stake {{ stake }}</span>
-                        <span>{{ textTurn }}<template v-if="turnAnimated">{{ " " }}<Dots /></template><template v-if="turnDeadline"> · {{ pauseSeconds }}s</template></span>
+                        <span>{{ textTurn }}<template v-if="turnAnimated">{{ " " }}<Dots /></template><template v-if="turnDeadline">: {{ pauseSeconds }}s</template></span>
+                        <span v-if="stake" class="stake">Stake left: {{ stake }}</span>
                         <span v-if="noticeLine" class="notice" :class="klassNotice">{{ textNotice }}<template v-if="noticeAnimated">{{ " " }}<Dots /></template></span>
                         <span v-if="secondNotice" class="notice" :class="'notice-' + secondNoticeType">{{ secondNotice }}</span>
                         <span v-if="notification" class="fallback-link">{{ notification }}</span>
@@ -51,6 +53,7 @@
                                 :icon-size="item.iconSize"
                                 :image="item.image"
                                 :image-width="item.imageWidth"
+                                :gap="item.gap"
                                 :variant="index === cursor ? 'selected' : null"
                             />
                         </div>
@@ -68,18 +71,23 @@ import store from "../../store/index.js";
 import { isWalletAlias, abbreviate } from "../../game/identity.js";
 import { secondsLeft } from "../../game/timer.js";
 import ddd from "../../../images/extra_objects/ddd.svg";
+import { WAITING_APPROVAL } from "../includes/walletNotes.js";
+import { CHAIN_ID, GAME_VERSION } from "../../net/constants.js";
 
-const NOTE_CHAIN = "Wallets play PRIVATE and ARENA on-chain: token pass and 5 POL stake required. Winner takes both stakes.";
-const NOTE_SEAT = (stake) => `Your seat is open (${stake} staked): PRIVATE and ARENA use it, no new stake needed.`;
-const CHAIN_HALT = "Polygon is down: PRIVATE and ARENA are off until it restarts.";
+const NOTE_CHAIN = "Wallets play PRIVATE and ARENA on-chain, 5\u00a0POL stake required for gas. Unspent stake refunded at match end.";
+const NOTE_SEAT = (stake) => `Your seat is open (${stake} staked): no new stake needed.`;
+const CHAIN_HALT = `Polygon network (chain\u00a0ID\u00a0${CHAIN_ID}) is down: PRIVATE and ARENA are off until it restarts.`;
 
 const KEYSTROKES = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"]);
-const METAMASK_WAIT = "Waiting for MetaMask ...";
 export default {
     props: {
         open: Boolean,
         gameStarted: Boolean,
         text: {
+            type: String,
+            default: "",
+        },
+        profile: {
             type: String,
             default: "",
         },
@@ -89,6 +97,10 @@ export default {
             validator: (v) => ["", "warning", "success", "info", "neutral", "error"].includes(v),
         },
         highlightedText: {
+            type: String,
+            default: "",
+        },
+        highlightedHref: {
             type: String,
             default: "",
         },
@@ -208,6 +220,7 @@ export default {
             pauseHandle: null,
             cursor: -1,
             ddd,
+            version: GAME_VERSION,
         }
     },
     computed: {
@@ -217,8 +230,13 @@ export default {
         whoAmI(){
             return isWalletAlias(this.alias) ? this.alias : "GUEST"
         },
+        sides() {
+            return [this.whoAmI, this.opponent].map((name) => (isWalletAlias(name)
+                ? { head: name.slice(0, 6), tail: name.slice(6) }
+                : { name }));
+        },
         noticeLine(){
-            if (store.state.popup) return METAMASK_WAIT
+            if (store.state.popup) return WAITING_APPROVAL
             return this.blinkingNotice ? "" : this.notice
         },
         noticeAnimated() {
@@ -280,6 +298,13 @@ export default {
         finishedText() {
             if (!this.gameFinished) return null;
             return this.message === 'GAME OVER' ? 'red' : 'green';
+        },
+        textAround() {
+            if (!this.text || !isWalletAlias(this.profile)) return null;
+            const short = abbreviate(this.profile);
+            const at = this.text.indexOf(short);
+            if (at < 0) return null;
+            return [this.text.slice(0, at), short, this.text.slice(at + short.length)];
         },
         mainMessage(){
             return this.text || this.message || null
@@ -412,18 +437,6 @@ export default {
 }
 
 
-.gameStarted-wrapper{
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-.modal-ingame{
-    background:
-        linear-gradient(
-                rgba(0, 0, 0, 0.4),
-                rgba(0, 0, 0, 0.4)
-        );
-}
 .main_modal {
     .modal_logo {
         width:60px
@@ -463,7 +476,7 @@ export default {
         }
         & > span.stake {
             display: block;
-            margin-bottom: 4px;
+            margin-top: 4px;
         }
         & > span.outcome-note {
             display: block;
@@ -473,18 +486,17 @@ export default {
             display: block;
             margin-top: 4px;
         }
-        & > span.highlighted {
+        & > .highlighted {
             display: block;
             margin-top: 6px;
-            color: #a225f0;
+            font-size: 16px;
             user-select: all;
             overflow-wrap: anywhere;
         }
         & > span.note-payout {
             display: block;
             margin-top: 4px;
-            color: #46e546;
-            &.loss { color: red; }
+            color: white;
         }
         & > span.note-chain {
             display: block;
@@ -495,6 +507,14 @@ export default {
         & > span.notice-success { color: #46e546; }
         & > span.notice-info { color: yellow; }
         & > span.notice-neutral { color: white; }
+
+        .profile-tag {
+            white-space: nowrap;
+        }
+        .choice-line {
+            display: block;
+            margin-top: 6px;
+        }
         & > span.notice-error { color: red; }
 
         & > span {

@@ -59,3 +59,13 @@ export function currentIdentity() {
 export function ensureIdentity() {
     return getWalletAddress() ?? getAlias();
 }
+
+let checkedAtBoot = Promise.resolve();
+
+export function settleAtBoot(check) {
+    checkedAtBoot = check.catch(() => {});
+}
+
+export function identityAtBoot() {
+    return checkedAtBoot;
+}

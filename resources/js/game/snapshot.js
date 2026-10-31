@@ -1,5 +1,6 @@
 import { colorName } from "./colors.js";
 import { NAME_ANIMAL } from "../engine/minimax.js";
+import { levelsOf } from "./botEngine.js";
 
 const SNAPSHOT_KEY = "jungleGame";
 
@@ -19,6 +20,10 @@ export function loadGame(now = Date.now()) {
             return null;
         }
         if (!colorName(game.colors.white) || !colorName(game.colors.black)) {
+            clearGame();
+            return null;
+        }
+        if (game.level !== undefined && !levelsOf().includes(game.level)) {
             clearGame();
             return null;
         }

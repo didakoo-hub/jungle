@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
@@ -17,8 +17,8 @@ contract JungleRulesTest is Test {
 
         uint256 letta = 0;
         for (uint256 p = 0; p < boards.length; p++) {
-            uint16[] memory mie = JungleRules.mosse(
-                JungleRules.apri(boards[p]), uint32(reps[p]), uint8(sides[p]), limite
+            uint16[] memory mie = JungleRules.moves(
+                JungleRules.unpack(boards[p]), uint32(reps[p]), uint8(sides[p]), limite
             );
             ordina(mie);
 

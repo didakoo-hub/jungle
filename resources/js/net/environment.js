@@ -15,10 +15,8 @@ if (typeof globalThis.process === "undefined") {
     };
 }
 
-// Read by the Streamr SDK logger: entrypoint and peer failures are routine mesh churn.
 globalThis.process.env.LOG_LEVEL ??= "silent";
 
-// The Streamr SDK registers an `unload` listener at import, which Chrome refuses by policy.
 if (typeof window === "object") {
     const addEventListener = window.addEventListener;
     window.addEventListener = function (type, ...rest) {

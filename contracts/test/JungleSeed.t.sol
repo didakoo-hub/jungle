@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
@@ -17,7 +17,7 @@ contract JungleSeedTest is Test {
         for (uint256 i = 0; i < quanti; i++) {
             bytes32 seed = vm.parseJsonBytes32(json, string.concat(".seeds[", vm.toString(i), "]"));
             assertEq(
-                JungleSeed.scacchieraIniziale(seed),
+                JungleSeed.initialBoard(seed),
                 vm.parseJsonUint(json, string.concat(".boards[", vm.toString(i), "]")),
                 string.concat("seme ", vm.toString(i))
             );
@@ -28,7 +28,7 @@ contract JungleSeedTest is Test {
         for (uint256 i = 0; i < quanti; i++) {
             bytes32 seed = vm.parseJsonBytes32(json, string.concat(".seeds[", vm.toString(i), "]"));
             assertEq(
-                JungleSeed.colori(seed),
+                JungleSeed.colors(seed),
                 uint8(vm.parseJsonUint(json, string.concat(".colorsOf[", vm.toString(i), "]"))),
                 string.concat("seme ", vm.toString(i))
             );
@@ -39,7 +39,7 @@ contract JungleSeedTest is Test {
         for (uint256 i = 0; i < quanti; i++) {
             bytes32 seed = vm.parseJsonBytes32(json, string.concat(".seeds[", vm.toString(i), "]"));
             assertEq(
-                JungleSeed.primoBianco(seed),
+                JungleSeed.whiteFirst(seed),
                 vm.parseJsonBool(json, string.concat(".firstIsWhite[", vm.toString(i), "]")),
                 string.concat("seme ", vm.toString(i))
             );
@@ -47,7 +47,7 @@ contract JungleSeedTest is Test {
     }
 
     function testFuzz_sedici_animali_vivi(bytes32 seed) public pure {
-        uint256 board = JungleSeed.scacchieraIniziale(seed);
+        uint256 board = JungleSeed.initialBoard(seed);
         uint256 occupate;
         for (uint256 slot = 0; slot < 16; slot++) {
             uint256 c = (board >> (slot * 7)) & 0x7f;
@@ -61,7 +61,7 @@ contract JungleSeedTest is Test {
     }
 
     function testFuzz_i_colori_sono_una_combinazione_lecita(bytes32 seed) public pure {
-        uint8 c = JungleSeed.colori(seed);
+        uint8 c = JungleSeed.colors(seed);
         uint8 board = (c >> 6) & 1;
         uint8 white = (c >> 3) & 7;
         uint8 black = c & 7;

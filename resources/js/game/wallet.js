@@ -1,12 +1,16 @@
 import { CHAIN_ID } from "../net/constants.js";
+import { inMiniApp } from "../farcaster/host.js";
+import { lockManager } from "../net/tab.js";
 
 const POPUP_KEY = "walletPopup";
-const CHAIN_HEX = "0x" + CHAIN_ID.toString(16);
+const POPUP_LOCK = "jungle-wallet-popup";
+const toHex = (id) => "0x" + Number(id).toString(16);
+const CHAIN_HEX = toHex(CHAIN_ID);
 export const POPUP_OPENED = "POPUP_OPENED";
 const RESUMPTION_HEARTBEAT_MS = 2000;
-// The extension and the in-app browser of MetaMask mobile; Flask stays out.
 const METAMASK_RDNS = new Set(["io.metamask", "io.metamask.mobile"]);
 const ANNOUNCE_WAIT_MS = 500;
+const SILENT_RETRY_MS = 1000;
 
 let popupInProgress = null;
 let releaseResumption = null;
@@ -15,10 +19,9 @@ let metamask = null;
 const listenersAccounts = new Set();
 let detachAccounts = null;
 
-// EIP-6963: the provider is the one MetaMask announces; window.ethereum is never read.
 function adoptAnnounced(e) {
     const detail = e?.detail;
-    if (!METAMASK_RDNS.has(detail?.info?.rdns) || detail.provider === metamask) return;
+    if (!(inMiniApp() ? e?.hosted : METAMASK_RDNS.has(detail?.info?.rdns)) || detail.provider === metamask) return;
     detachAccounts?.();
     detachAccounts = null;
     metamask = detail.provider ?? null;
@@ -31,6 +34,10 @@ function adoptAnnounced(e) {
     detachAccounts = () => eth.removeListener?.("accountsChanged", handler);
 }
 
+export function adoptHosted(provider) {
+    adoptAnnounced({ hosted: true, detail: { provider } });
+}
+
 const announced = new Promise((resolve) => {
     if (typeof globalThis.addEventListener !== "function" || typeof globalThis.dispatchEvent !== "function") return resolve();
     globalThis.addEventListener("eip6963:announceProvider", (e) => {
@@ -41,12 +48,12 @@ const announced = new Promise((resolve) => {
     setTimeout(resolve, ANNOUNCE_WAIT_MS);
 });
 
-export function sharedOrigin() {
+function sharedOrigin() {
     const path = globalThis.location?.pathname;
     return typeof path === "string" && (path.startsWith("/ipfs/") || path.startsWith("/ipns/"));
 }
 
-export function framed() {
+function framed() {
     try {
         const top = globalThis.top;
         return top !== undefined && top !== globalThis.self;
@@ -56,16 +63,13 @@ export function framed() {
 }
 
 export function walletClosed() {
+    if (inMiniApp()) return null;
     if (sharedOrigin()) return "gateway";
     if (framed()) return "iframe";
     return null;
 }
 
 export function popupSuspended() {
-    return readSuspended();
-}
-
-function readSuspended() {
     if (walletClosed()) return null;
     try {
         const raw = localStorage.getItem(POPUP_KEY);
@@ -84,7 +88,50 @@ function writeSuspended(suspended) {
 }
 
 export function popupOpen() {
-    return popupInProgress !== null || readSuspended() !== null;
+    return popupInProgress !== null || popupSuspended() !== null;
+}
+
+export function popupOfAnotherTab() {
+    return popupInProgress === null && popupSuspended() !== null;
+}
+
+function holdPopupLock(done) {
+    const locks = lockManager();
+    if (!locks) return;
+    locks.request(POPUP_LOCK, { ifAvailable: true }, (lock) => (lock ? done.catch(() => {}) : undefined)).catch(() => {});
+}
+
+export async function popupElsewhere() {
+    if (!popupOfAnotherTab()) return false;
+    const locks = lockManager();
+    if (!locks) return false;
+    try {
+        return await locks.request(POPUP_LOCK, { ifAvailable: true }, (lock) => !lock);
+    } catch {
+        return false;
+    }
+}
+
+let watchingElsewhere = false;
+
+export function watchPopupElsewhere() {
+    const locks = lockManager();
+    if (!locks || watchingElsewhere) return;
+    watchingElsewhere = true;
+    locks.request(POPUP_LOCK, () => {
+        if (popupOfAnotherTab()) writeSuspended(null);
+    }).catch(() => {}).finally(() => {
+        watchingElsewhere = false;
+        warnPopup();
+    });
+}
+
+if (typeof globalThis.addEventListener === "function") {
+    globalThis.addEventListener("storage", (e) => {
+        if (e?.key !== POPUP_KEY && e?.key !== null) return;
+        if (popupOfAnotherTab()) watchPopupElsewhere();
+        warnPopup();
+    });
 }
 
 export function onPopup(cb) {
@@ -97,60 +144,50 @@ function warnPopup() {
     for (const cb of listenersPopup) cb(opened);
 }
 
-async function withPopup(suspended, fn) {
-    if (popupOpen()) throw Object.assign(new Error("A request is already open in the wallet"), { code: POPUP_OPENED });
-    const record = { ...suspended, t: Date.now() };
-    writeSuspended(record);
-    const update = (extra) => writeSuspended(Object.assign(record, extra));
+function runPopup(fn, cleanup) {
     popupInProgress = (async () => {
         try {
-            return await fn(update);
+            return await fn();
         } finally {
+            cleanup?.();
             popupInProgress = null;
             writeSuspended(null);
             warnPopup();
         }
     })();
+    holdPopupLock(popupInProgress);
     warnPopup();
     return popupInProgress;
+}
+
+async function withPopup(suspended, fn) {
+    if (popupOpen()) throw Object.assign(new Error("A request is already open in the wallet"), { code: POPUP_OPENED });
+    const record = { ...suspended, t: Date.now() };
+    writeSuspended(record);
+    return runPopup(() => fn((extra) => writeSuspended(Object.assign(record, extra))));
 }
 
 function awaitFor(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
+const ATTEMPTS = {
+    login: (eth) => eth.request({ method: "eth_requestAccounts" }).then(
+        (accounts) => ({ account: Array.isArray(accounts) ? accounts[0] ?? null : null }),
+        (e) => (e?.code === -32002 ? undefined : {})),
+    chain: (eth, s) => (s.chainId !== CHAIN_HEX ? {} : eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_HEX }] }).then(
+        () => ({}),
+        (e) => (e?.code === -32002 ? undefined : {}))),
+    tx: async (eth, s) => (!Number.isInteger(s.count) || await transactionCount(eth, s.from) > s.count ? {} : undefined),
+};
+
 async function awaitForResponse(eth, suspended, heartbeatMs, alive) {
-    if (suspended.type === "login") {
-        while (alive.self) {
-            try {
-                const accounts = await eth.request({ method: "eth_requestAccounts" });
-                return { account: Array.isArray(accounts) ? accounts[0] ?? null : null };
-            } catch (e) {
-                if (e?.code !== -32002) return {};
-            }
-            await awaitFor(heartbeatMs);
-        }
-    }
-    if (suspended.type === "chain" && suspended.chainId === CHAIN_HEX) {
-        while (alive.self) {
-            try {
-                await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_HEX }] });
-                return {};
-            } catch (e) {
-                if (e?.code !== -32002) return {};
-            }
-            await awaitFor(heartbeatMs);
-        }
-    }
-    if (suspended.type === "tx" && Number.isInteger(suspended.count)) {
-        while (alive.self) {
-            try {
-                const n = Number(await eth.request({ method: "eth_getTransactionCount", params: [suspended.from, "latest"] }));
-                if (n > suspended.count) return {};
-            } catch {
-            }
-            await awaitFor(heartbeatMs);
-        }
+    const attempt = ATTEMPTS[suspended.type];
+    if (!attempt) return {};
+    while (alive.self) {
+        const answer = await attempt(eth, suspended);
+        if (answer !== undefined) return answer;
+        await awaitFor(heartbeatMs);
     }
     return {};
 }
@@ -161,28 +198,23 @@ export function releasePopup() {
 }
 
 export async function resumePopup({ heartbeatMs = RESUMPTION_HEARTBEAT_MS } = {}) {
-    const suspended = readSuspended();
+    const suspended = popupSuspended();
     if (!suspended) return null;
     const eth = await providerSoon();
     if (!eth) {
         writeSuspended(null);
+        warnPopup();
         return suspended;
     }
     const alive = { self: true };
     const release = new Promise((r) => { releaseResumption = r; });
-    popupInProgress = (async () => {
-        try {
-            return await Promise.race([awaitForResponse(eth, suspended, heartbeatMs, alive), release.then(() => ({ refused: true }))]);
-        } finally {
+    const answer = await runPopup(
+        () => Promise.race([awaitForResponse(eth, suspended, heartbeatMs, alive), release.then(() => ({ refused: true }))]),
+        () => {
             alive.self = false;
             releaseResumption = null;
-            popupInProgress = null;
-            writeSuspended(null);
-            warnPopup();
-        }
-    })();
-    warnPopup();
-    return { ...suspended, ...(await popupInProgress) };
+        });
+    return { ...suspended, ...answer };
 }
 
 export function getProvider() {
@@ -190,9 +222,8 @@ export function getProvider() {
     return metamask && typeof metamask.request === "function" ? metamask : null;
 }
 
-// At boot: the provider once announced, or none after ANNOUNCE_WAIT_MS.
 async function providerSoon() {
-    await announced;
+    if (!inMiniApp()) await announced;
     return getProvider();
 }
 
@@ -215,12 +246,12 @@ export async function requestAccounts() {
 
 export async function readAuthorizedAccounts() {
     const eth = await providerSoon();
-    if (!eth) return [];
+    if (!eth) return null;
     try {
-        const accounts = await eth.request({ method: "eth_accounts" });
-        return Array.isArray(accounts) ? accounts : [];
+        const accounts = await eth.request({ method: inMiniApp() ? "eth_requestAccounts" : "eth_accounts" });
+        return Array.isArray(accounts) ? accounts : null;
     } catch {
-        return [];
+        return null;
     }
 }
 
@@ -242,7 +273,6 @@ export async function revokeAccounts() {
     try {
         await eth.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
     } catch {
-        return;
     }
 }
 
@@ -263,10 +293,16 @@ export async function chainId() {
     }
 }
 
+export async function walletSilent({ retryMs = SILENT_RETRY_MS } = {}) {
+    if (await chainId() !== null) return false;
+    await awaitFor(retryMs);
+    return await chainId() === null;
+}
+
 export async function switchChain(id) {
     const eth = getProvider();
     if (!eth) throw Object.assign(new Error("No injected wallet"), { code: "NO_PROVIDER" });
-    const chainId = "0x" + Number(id).toString(16);
+    const chainId = toHex(id);
     return await withPopup({ type: "chain", chainId }, () => eth.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId }],
@@ -338,8 +374,8 @@ export async function sendTransaction(from, to, data, value, chain) {
     if (!eth) throw Object.assign(new Error("No injected wallet"), { code: "NO_PROVIDER" });
     const tx = { from, to, data };
     if (value) tx.value = value;
-    if (chain) tx.chainId = "0x" + Number(chain).toString(16);
-    return await withPopup({ type: "tx", from: from }, async (update) => {
+    if (chain) tx.chainId = toHex(chain);
+    return await withPopup({ type: "tx", from }, async (update) => {
         update({ count: await transactionCount(eth, from) });
         return await eth.request({ method: "eth_sendTransaction", params: [tx] });
     });

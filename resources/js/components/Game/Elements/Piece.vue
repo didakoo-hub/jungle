@@ -19,7 +19,7 @@
 </template>
 <script>
 import { animalSrc } from "./boardAssets.js";
-import { PIECE_SCALE, pieceFrame } from "./pieceFrame.js";
+import { PIECE_SCALE, boardFrame } from "./pieceFrame.js";
 
 export default {
     methods: { animalSrc },
@@ -64,12 +64,12 @@ export default {
     },
     computed: {
         viewPort() {
-            const { x, y, size } = pieceFrame(this.name);
+            const { x, y, size } = boardFrame(this.name);
             return `${x} ${y} ${size} ${size}`;
         },
         imageStyle() {
-            const { center, bottom } = pieceFrame(this.name);
-            return { transformOrigin: `${center}px ${bottom}px`, "--piece-scale": PIECE_SCALE };
+            const { center, middle } = boardFrame(this.name);
+            return { transformOrigin: `${center}px ${middle}px`, "--piece-scale": PIECE_SCALE };
         },
         pieceTransformStyles() {
             if (this.isMoves) {
@@ -123,7 +123,7 @@ svg image {
     height: 400px;
     transform: scale(var(--piece-scale));
 }
-@media (pointer: coarse) and (max-width: 599px), (pointer: coarse) and (max-height: 599px) {
+@media (max-width: 599px), (max-height: 599px) {
     .chesspiece image.animal {
         transform: none;
     }

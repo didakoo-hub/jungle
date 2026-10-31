@@ -1,0 +1,35 @@
+{
+    "accountAssociation": {
+        "header": "eyJmaWQiOjg2MzI0NSwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDA2RTE0ZkE0NzlDMjQ1MTQ4Njg2M0E5OTUwMTQ3Njg0QTIzRDIxODkifQ",
+        "payload": "eyJkb21haW4iOiJqdW5nbGUuZGlkYWtvby5jb20ifQ",
+        "signature": "sqdGkzoHreIXmJsjIsmWhNKNG+wibChswOef5lsOq6UKN4mVEsDW/2kz6yRzXIFMGq/0RHPJVvRpfJowVlpsnhw="
+    },
+    "miniapp": {
+        "version": "1",
+        "name": "Jungle didakoo",
+        "iconUrl": "https://jungle.didakoo.com/farcaster/icon.png",
+        "homeUrl": "https://jungle.didakoo.com/",
+        "splashImageUrl": "https://jungle.didakoo.com/farcaster/splash.png",
+        "splashBackgroundColor": "#000000",
+        "description": "Jungle is a decentralized Web3 board game for the browser. Play the bot offline, or challenge other players on-chain on Polygon.",
+        "primaryCategory": "games",
+        "tags": [
+            "boardgame",
+            "strategy",
+            "onchain",
+            "polygon",
+            "ipfs"
+        ],
+        "heroImageUrl": "https://jungle.didakoo.com/farcaster/embed.jpg",
+        "ogTitle": "Jungle didakoo",
+        "ogDescription": "A 1 vs 1 board game: play the bot, or another player on Polygon.",
+        "ogImageUrl": "https://jungle.didakoo.com/farcaster/embed.jpg",
+        "requiredChains": [
+            "eip155:137"
+        ],
+        "requiredCapabilities": [
+            "wallet.getEthereumProvider"
+        ],
+        "canonicalDomain": "jungle.didakoo.com"
+    }
+}

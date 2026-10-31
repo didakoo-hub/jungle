@@ -10,6 +10,7 @@ const store = new Vuex.Store({
         alias: storageBlocked() ? null : currentIdentity(),
         turn: "white",
         popup: false,
+        popupElsewhere: false,
     },
 
     mutations: {
@@ -21,6 +22,9 @@ const store = new Vuex.Store({
         },
         SET_POPUP(state, opened) {
             state.popup = opened;
+        },
+        SET_POPUP_ELSEWHERE(state, elsewhere) {
+            state.popupElsewhere = elsewhere;
         },
     },
 });

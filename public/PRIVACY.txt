@@ -1,0 +1,25 @@
+Jungle didakoo - Privacy notice
+
+No sign-up, no cookies, no analytics. The app keeps in your browser only what it needs to work:
+your guest and session keys, the BOT match in progress and your guest wins.
+
+Online matches:
+PRIVATE and ARENA matches connect to the Streamr peer-to-peer network: other nodes of the network
+can see your public IP address.
+
+On-chain matches:
+Matches between wallets are recorded on Polygon: wallet address, moves, result and match token are
+public and permanent, and cannot be deleted.
+
+Third-party services:
+To work, the app contacts services that can see your public IP address:
+- blockchain providers: Tenderly, thirdweb, dRPC, PublicNode, QuickNode, The Graph; as in any
+  blockchain app, they receive the app's requests, including the address of the wallet you play
+  with (MetaMask or Farcaster);
+- network services used by Streamr: Fastly, Cloudflare, CloudFront;
+- GitHub, for version announcements;
+- the host serving this page.
+MetaMask and Farcaster, if you use them, have their own privacy policies.
+
+Contact:
+info@didakoo.com
